@@ -184,7 +184,38 @@ def get_single_campaign(campaign_id):
     print(f"\n📋 Campaign Details for ID {campaign_id}:")
     print(json.dumps(campaign, indent=4))
 
+def get_analytics():
+    url = f"{BASE_URL}/report/integrated/get/"
+    payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "dimensions": json.dumps(["campaign_id"]), 
+        "metrics": json.dumps(["spend", "impressions", "clicks", "cpc", "ctr"]) ,
+        "report_type": "BASIC",
+        "start_date": "2025-12-01",
+        "end_date": "2025-12-20",
+        "data_level": "AUCTION_CAMPAIGN",
+        "page": 1,
+        "page_size": 50
+    }
+    
+    res = requests.get(url, headers=HEADERS, params=payload)
+
+    print("Response Status Code:", res.status_code)
+    print("Response Content:", res.text)
+
+    data = res.json()
+    
+    if data['code'] != 0:
+        print(f"❌ Get Analytics Failed: {data['message']}")
+        return
+    
+    reports = data['data']['list']
+    print("\n📊 Analytics Report:")
+    for report in reports:
+        print(report)
+
 if __name__ == '__main__':
-    create_tiktok_ad_flow()
+    # create_tiktok_ad_flow()
     # get_campaigns()
     # get_single_campaign("7582640422065864711")
+    get_analytics()
