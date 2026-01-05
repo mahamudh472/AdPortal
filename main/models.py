@@ -71,7 +71,7 @@ class Campaign(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.get_platform_display()} - {self.name}"
+        return f"{self.name}"
 
     @property
     def platform(self):

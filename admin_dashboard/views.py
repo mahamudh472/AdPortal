@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from accounts.models import User
 from main.models import Campaign
 from rest_framework.permissions import IsAdminUser
+from main.serializers import CampaignSerializer
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -34,7 +35,7 @@ class DashboardAPIView(generics.GenericAPIView):
 					'google': google_campaigns,
 					'tiktok': tiktok_campaigns
 					},
-					'recent_campaigns': recent_campaigns
+					'recent_campaigns': CampaignSerializer(recent_campaigns, many=True).data
 
 				}
 			)
