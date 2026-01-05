@@ -6,7 +6,7 @@ from main.models import Campaign
 from rest_framework.permissions import IsAdminUser
 
 class DashboardAPIView(generics.GenericAPIView):
-	# permission_classes = [IsAdminUser]
+	permission_classes = [IsAdminUser]
 
 	def get(request, *args, **kwargs):
 
