@@ -1,10 +1,12 @@
 from collections import UserString
 from rest_framework import generics
+from rest_framework import permissions
 from rest_framework.response import Response
 from accounts.models import User
 from main.models import Campaign
 from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer
+from rest_framework.pagination import PageNumberPagination
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -39,3 +41,16 @@ class DashboardAPIView(generics.GenericAPIView):
 
 				}
 			)
+
+class CampaignListPagination(PageNumberPagination):
+	max_page_size = 100
+	page_size = 10
+
+
+class CampaignListAPIView(generics.ListAPIView):
+	serializer_class = CampaignSerializer
+	permission_classes = [permissions.IsAdminUser]
+	queryset = Campaign.objects.all()
+	pagination_class = CampaignListPagination
+
+	
