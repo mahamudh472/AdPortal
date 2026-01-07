@@ -35,10 +35,10 @@ class ChangePasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
     
-    def validate(self, data):
-        if data['new_password'] != data['confirm_password']:
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['confirm_password']:
             raise serializers.ValidationError("New passwords do not match")
-        return data
+        return attrs
     
 
 class UserSerializer(serializers.ModelSerializer):
