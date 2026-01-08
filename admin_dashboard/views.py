@@ -1,5 +1,3 @@
-from collections import UserString
-from operator import ge
 from rest_framework import generics
 from rest_framework import permissions
 from rest_framework.response import Response
@@ -12,19 +10,36 @@ from .serializers import UserAdminViewSerializer
 from django.db.models import Q
 from datetime import timedelta
 from django.utils import timezone
+from .utils import get_percentage, get_last_month_objects_count, get_second_last_month_objects_count
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
 
 	def get(request, *args, **kwargs):
 
-		# TODO: Need to implement month filtered data.
-		users = User.objects.count()
+		users = User.objects.all()
+		last_month_users = get_last_month_objects_count(users)
+		second_last_month_users = get_second_last_month_objects_count(users)
+		user_info_percentage = get_percentage(last_month_users, second_last_month_users)
+
 		campaings = Campaign.objects.all()
+		last_month_campaigns = get_last_month_objects_count(campaings)
+		second_last_month_campaigns = get_second_last_month_objects_count(campaings)
+		campaign_info_percentage = get_percentage(last_month_campaigns, second_last_month_campaigns)
 
 		# TODO: Need to make revenue dynamic
 
 		revenue = 0
+
+		chart_data = [
+		    { 'month': "Jan", 'users': 2000, 'revenue': 2400 },
+		    { 'month': "Feb", 'users': 4000, 'revenue': 4200 },
+		    { 'month': "Mar", 'users': 7000, 'revenue': 6800 },
+		    { 'month': "Apr", 'users': 9000, 'revenue': 7600 },
+		    { 'month': "May", 'users': 10500, 'revenue': 8900 },
+		    { 'month': "Jun", 'users': 12000, 'revenue': 11000 },
+		    { 'month': "Jul", 'users': 13500, 'revenue': 12500 },
+		  ];
 
 		meta_campaigns = campaings.filter(integration__platform='META').count()
 		google_campaigns = campaings.filter(integration__platform='GOOGLE').count()
@@ -34,9 +49,21 @@ class DashboardAPIView(generics.GenericAPIView):
 
 		return Response(
 				{
-					"users": users,
-					"campaings": campaings.count(),
-					'revenue': revenue,
+					"users": {
+						"value": users.count(),
+						"past_month": last_month_users,
+						'percentage': user_info_percentage
+					},
+					"campaings": {
+						'value': campaings.count(),
+						'last_month': last_month_campaigns,
+						'percentage': campaign_info_percentage
+					},
+					'revenue': {
+						'value': revenue,
+						'percentage': 0
+					},
+					'chart_data': chart_data,
 					'campaings_by_platform':{
 					'meta': meta_campaigns,
 					'google': google_campaigns,

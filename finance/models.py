@@ -32,7 +32,7 @@ class Plan(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.get_name_display()} (${self.price}/{self.interval})"
+        return f"{self.name} (${self.price}/{self.interval})"
 
 class PlanFeature(models.Model):
     plan = models.ForeignKey(
