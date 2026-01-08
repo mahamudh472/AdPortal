@@ -71,7 +71,7 @@ class OTP(models.Model):
         verbose_name_plural = 'OTPs'
     
     def __str__(self):
-        return f"{self.user.email} - {self.purpose} - {self.code}"
+        return f"{self.user.email} - {self.code}"
     
     def is_valid(self):
         """Check if OTP is still valid"""

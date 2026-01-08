@@ -6,6 +6,14 @@
 
 
 ### admin_dashboard(app)
-- [ ] Complete endpoints creation.
+- [ ] User management - Status toogle.
+- [ ] Campaign monitoring.
+- [ ] Finance.
+- [ ] Platform analytics.
+- [ ] Generate reports.
+- [ ] Email setup.
+- [ ] Activity logs.
+- [ ] Settings.
 - [ ] Add endpoints to the Endpoint list.
 - [ ] Create testcases for testing the endpoints.
+- [ ] plan for user dashboard

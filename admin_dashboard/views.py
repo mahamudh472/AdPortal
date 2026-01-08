@@ -100,3 +100,4 @@ class UserManagementListAPIView(generics.ListAPIView):
 				Q(email__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
 				)
 		return User.objects.all()
+
