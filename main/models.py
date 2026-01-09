@@ -46,56 +46,218 @@ class AdIntegration(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.platform} ({self.ad_account_id})"
     
-class Campaign(models.Model):
-    integration = models.ForeignKey(AdIntegration, on_delete=models.CASCADE, related_name='campaigns')
+# class Campaign(models.Model):
+#     integration = models.ForeignKey(AdIntegration, on_delete=models.CASCADE, related_name='campaigns')
     
-    # Internal Name (What your user sees)
+#     # Internal Name (What your user sees)
+#     name = models.CharField(max_length=255)
+    
+#     # External ID (The ID returned by Facebook/TikTok)
+#     platform_campaign_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    
+#     # Unified Fields
+#     objective = models.CharField(max_length=20, choices=UnifiedObjective.choices)
+#     status = models.CharField(max_length=20, choices=UnifiedStatus.choices, default=UnifiedStatus.PAUSED)
+    
+#     # Budget (Decimal for money)
+#     daily_budget = models.DecimalField(max_digits=12, decimal_places=2)
+    
+#     # Store raw API response or extra platform specific data here
+#     # Example: Google might need 'bidding_strategy_type' which TikTok doesn't have.
+#     # Store that logic in JSON.
+#     extra_data = models.JSONField(default=dict, blank=True)
+    
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     updated_at = models.DateTimeField(auto_now=True)
+
+#     def __str__(self):
+#         return f"{self.name}"
+
+#     @property
+#     def platform(self):
+#         return self.integration.platform
+
+class UnifiedCampaign(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
     name = models.CharField(max_length=255)
-    
-    # External ID (The ID returned by Facebook/TikTok)
-    platform_campaign_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    
-    # Unified Fields
-    objective = models.CharField(max_length=20, choices=UnifiedObjective.choices)
-    status = models.CharField(max_length=20, choices=UnifiedStatus.choices, default=UnifiedStatus.PAUSED)
-    
-    # Budget (Decimal for money)
-    daily_budget = models.DecimalField(max_digits=12, decimal_places=2)
-    
-    # Store raw API response or extra platform specific data here
-    # Example: Google might need 'bidding_strategy_type' which TikTok doesn't have.
-    # Store that logic in JSON.
-    extra_data = models.JSONField(default=dict, blank=True)
-    
+
+    objective = models.CharField(
+        max_length=20,
+        choices=UnifiedObjective.choices
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=UnifiedStatus.choices,
+        default=UnifiedStatus.PAUSED
+    )
+
+    daily_budget = models.DecimalField(
+        max_digits=12,
+        decimal_places=2
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name}"
+        return self.name
+
+class PlatformCampaign(models.Model):
+    unified_campaign = models.ForeignKey(
+        UnifiedCampaign,
+        on_delete=models.CASCADE,
+        related_name='platform_campaigns'
+    )
+
+    integration = models.ForeignKey(
+        AdIntegration,
+        on_delete=models.CASCADE,
+        related_name='platform_campaigns'
+    )
+
+    platform_campaign_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=UnifiedStatus.choices,
+        default=UnifiedStatus.PAUSED
+    )
+
+    # Platform-specific config
+    extra_data = models.JSONField(default=dict, blank=True)
+
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        unique_together = (
+            'unified_campaign',
+            'integration',
+        )
+
+    def __str__(self):
+        return f"{self.unified_campaign.name} [{self.integration.platform}]"
+
+
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
+
+from .models import PlatformCampaign, UnifiedStatus
+
+
+class AdGroup(models.Model):
+    """
+    Represents a platform-level ad container:
+    - Meta: Ad Set
+    - Google: Ad Group
+    - TikTok: Ad Group
+
+    This model is ALWAYS tied to a PlatformCampaign,
+    never directly to a UnifiedCampaign.
+    """
+
+    platform_campaign = models.ForeignKey(
+        PlatformCampaign,
+        on_delete=models.CASCADE,
+        related_name="ad_groups"
+    )
+
+    # Internal name (shown in your UI)
+    name = models.CharField(max_length=255)
+
+    # External ID returned by the platform
+    platform_adgroup_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        db_index=True
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=UnifiedStatus.choices,
+        default=UnifiedStatus.PAUSED
+    )
+
+    # Budget at ad-group level (optional per platform)
+    daily_budget = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_("Optional override of campaign budget")
+    )
+
+    # Platform-specific targeting configuration
+    # Examples:
+    # Meta: interests, geo_locations, age_min/max
+    # Google: keywords, placements
+    # TikTok: demographics, behaviors
+    targeting_config = models.JSONField(
+        default=dict,
+        blank=True
+    )
+
+    # Platform-specific bidding / optimization config
+    # Example:
+    # {
+    #   "bid_strategy": "LOWEST_COST",
+    #   "optimization_goal": "CONVERSIONS"
+    # }
+    bidding_config = models.JSONField(
+        default=dict,
+        blank=True
+    )
+
+    start_time = models.DateTimeField(
+        default=timezone.now
+    )
+
+    end_time = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    # Sync & error tracking
+    last_synced_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    error_message = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        unique_together = (
+            "platform_campaign",
+            "platform_adgroup_id",
+        )
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.platform_campaign.integration.platform})"
 
     @property
     def platform(self):
-        return self.integration.platform
-    
-class AdGroup(models.Model):
-    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name='ad_groups')
-    
-    name = models.CharField(max_length=255)
-    platform_adgroup_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    
-    status = models.CharField(max_length=20, choices=UnifiedStatus.choices, default=UnifiedStatus.PAUSED)
-    
-    # TARGETING (The complex part)
-    # We use JSONField because targeting is too different across platforms to make specific columns.
-    # Structure: {'age_min': 18, 'geo_locations': ['US'], 'interests': [...]}
-    targeting_config = models.JSONField(default=dict)
-    
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField(null=True, blank=True)
+        return self.platform_campaign.integration.platform
 
-    def __str__(self):
-        return self.name
-    
 class AdAsset(models.Model):
     """
     Stores the actual files (Images/Videos) uploaded by the user to YOUR server

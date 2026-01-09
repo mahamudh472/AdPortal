@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.fields import SerializerMethodField
 from accounts.models import User
-from main.models import Campaign
+from main.models import UnifiedCampaign
 
 class UserAdminViewSerializer(serializers.ModelSerializer):
 	plan = serializers.SerializerMethodField()
@@ -22,7 +22,7 @@ class UserAdminViewSerializer(serializers.ModelSerializer):
 		return "Active" if obj.is_active else "Inactive"
 
 	def get_campaigns(self, obj):
-		return Campaign.objects.filter(integration__user=obj).count()
+		return UnifiedCampaign.objects.filter(integration__user=obj).count()
 
 	def get_spend(self, obj):
 		# TODO: Need to dynamic this
