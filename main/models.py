@@ -135,6 +135,9 @@ class PlatformCampaign(models.Model):
     last_synced_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
         unique_together = (
             'unified_campaign',

@@ -13,17 +13,17 @@ class Command(BaseCommand):
             {
                 'name': 'starter',
                 'price': 79.00,
-                'description': 'Perfect for small businesses and startups'
+                'description': 'Launch quickly. Spend smarter. AI-powered ads without the complexity.'
             },
             {
                 'name': 'growth',
                 'price': 199.00,
-                'description': 'Ideal for growing businesses with advanced needs'
+                'description': 'Scale campaigns with data-driven insights and collaboration tools.'
             },
             {
                 'name': 'scale',
                 'price': 499.00,
-                'description': 'Enterprise-level features for agencies and large teams'
+                'description': 'Automate everything. Outsmart competitors. Grow profitably with AI.'
             }
         ]
 
@@ -52,9 +52,9 @@ class Command(BaseCommand):
             )
 
             if created:
-                self.stdout.write(self.style.SUCCESS(f'✓ Created plan: {plan.get_name_display()}'))
+                self.stdout.write(self.style.SUCCESS(f'✓ Created plan: {plan.name}'))
             else:
-                self.stdout.write(self.style.WARNING(f'✓ Updated plan: {plan.get_name_display()}'))
+                self.stdout.write(self.style.WARNING(f'✓ Updated plan: {plan.name}'))
 
             # Clear existing features for this plan
             PlanFeature.objects.filter(plan=plan).delete()

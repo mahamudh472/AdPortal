@@ -2,7 +2,7 @@ from rest_framework import generics
 from rest_framework import permissions
 from rest_framework.response import Response
 from accounts.models import User
-from main.models import UnifiedCampaign
+from main.models import Platform, UnifiedCampaign, PlatformCampaign
 from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer
 from rest_framework.pagination import PageNumberPagination
@@ -22,7 +22,7 @@ class DashboardAPIView(generics.GenericAPIView):
 		second_last_month_users = get_second_last_month_objects_count(users)
 		user_info_percentage = get_percentage(last_month_users, second_last_month_users)
 
-		campaings = UnifiedCampaign.objects.all()
+		campaings = PlatformCampaign.objects.all()
 		last_month_campaigns = get_last_month_objects_count(campaings)
 		second_last_month_campaigns = get_second_last_month_objects_count(campaings)
 		campaign_info_percentage = get_percentage(last_month_campaigns, second_last_month_campaigns)
