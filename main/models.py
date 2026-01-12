@@ -8,15 +8,21 @@ class Platform(models.TextChoices):
     TIKTOK = 'TIKTOK', 'TikTok Ads'
 
 class UnifiedObjective(models.TextChoices):
-    TRAFFIC = 'TRAFFIC', 'Traffic/Clicks'
-    SALES = 'SALES', 'Conversions/Sales'
-    AWARENESS = 'AWARENESS', 'Brand Awareness'
+    AWARENESS = 'AWARENESS'
+    TRAFFIC = 'TRAFFIC'
+    ENGAGEMENT = 'ENGAGEMENT'
+    LEAD = 'LEAD'
+    SALES = 'SALES'
+    APP_INSTALL = 'APP_INSTALL'
+    VIDEO_VIEW = 'VIDEO_VIEW'
 
 class UnifiedStatus(models.TextChoices):
-    ACTIVE = 'ACTIVE', 'Active'
-    PAUSED = 'PAUSED', 'Paused'
-    ARCHIVED = 'ARCHIVED', 'Archived/Deleted'
-    ERROR = 'ERROR', 'Error/Rejected'
+    DRAFT = 'DRAFT'
+    ACTIVE = 'ACTIVE'
+    PAUSED = 'PAUSED'
+    SYNCING = 'SYNCING'
+    ERROR = 'ERROR'
+    ARCHIVED = 'ARCHIVED'
 
 class AdIntegration(models.Model):
     """
@@ -46,36 +52,6 @@ class AdIntegration(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.platform} ({self.ad_account_id})"
     
-# class Campaign(models.Model):
-#     integration = models.ForeignKey(AdIntegration, on_delete=models.CASCADE, related_name='campaigns')
-    
-#     # Internal Name (What your user sees)
-#     name = models.CharField(max_length=255)
-    
-#     # External ID (The ID returned by Facebook/TikTok)
-#     platform_campaign_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    
-#     # Unified Fields
-#     objective = models.CharField(max_length=20, choices=UnifiedObjective.choices)
-#     status = models.CharField(max_length=20, choices=UnifiedStatus.choices, default=UnifiedStatus.PAUSED)
-    
-#     # Budget (Decimal for money)
-#     daily_budget = models.DecimalField(max_digits=12, decimal_places=2)
-    
-#     # Store raw API response or extra platform specific data here
-#     # Example: Google might need 'bidding_strategy_type' which TikTok doesn't have.
-#     # Store that logic in JSON.
-#     extra_data = models.JSONField(default=dict, blank=True)
-    
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-
-#     def __str__(self):
-#         return f"{self.name}"
-
-#     @property
-#     def platform(self):
-#         return self.integration.platform
 
 class UnifiedCampaign(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -93,10 +69,10 @@ class UnifiedCampaign(models.Model):
         default=UnifiedStatus.PAUSED
     )
 
-    daily_budget = models.DecimalField(
-        max_digits=12,
-        decimal_places=2
+    daily_budget_minor = models.BigIntegerField(
+        help_text="Stored in minor units (e.g. cents)"
     )
+    currency = models.CharField(max_length=3, default="USD")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -131,6 +107,12 @@ class PlatformCampaign(models.Model):
 
     # Platform-specific config
     extra_data = models.JSONField(default=dict, blank=True)
+
+    capabilities = models.JSONField(
+        default=dict,
+        help_text="Cached platform feature support"
+    )
+ 
 
     last_synced_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
@@ -203,10 +185,12 @@ class AdGroup(models.Model):
     # Meta: interests, geo_locations, age_min/max
     # Google: keywords, placements
     # TikTok: demographics, behaviors
-    targeting_config = models.JSONField(
+    targeting_config = models.JSONField(default=dict)
+    normalized_targeting = models.JSONField(
         default=dict,
-        blank=True
+        help_text="Platform-agnostic targeting snapshot"
     )
+
 
     # Platform-specific bidding / optimization config
     # Example:
@@ -274,6 +258,11 @@ class AdAsset(models.Model):
     file_hash = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+class PlatformAsset(models.Model):
+    asset = models.ForeignKey(AdAsset, on_delete=models.CASCADE)
+    integration = models.ForeignKey(AdIntegration, on_delete=models.CASCADE)
+    platform_asset_id = models.CharField(max_length=255)
+
 
 class Ad(models.Model):
     ad_group = models.ForeignKey(AdGroup, on_delete=models.CASCADE, related_name='ads')
@@ -286,6 +275,13 @@ class Ad(models.Model):
     headline = models.CharField(max_length=255, null=True, blank=True)
     body_text = models.TextField(null=True, blank=True)
     destination_url = models.URLField()
+
+    call_to_action = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True
+    )
+
     
     # Link to the local asset
     asset = models.ForeignKey(AdAsset, on_delete=models.SET_NULL, null=True)
@@ -297,5 +293,8 @@ class Ad(models.Model):
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        unique_together = ("ad_group", "platform_ad_id")
     
     
