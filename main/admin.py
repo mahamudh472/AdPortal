@@ -1,12 +1,12 @@
-# from django.contrib import admin
-# from .models import UnifiedCampaign, AdIntegration, Platform, UnifiedObjective, UnifiedStatus, AdGroup
+from django.contrib import admin
+from .models import UnifiedCampaign, AdIntegration, Platform, UnifiedObjective, UnifiedStatus, AdGroup
 
-# @admin.register(AdIntegration)
-# class AdIntegrationAdmin(admin.ModelAdmin):
-#     list_display = ('user', 'platform', 'ad_account_id', 'account_name', 'currency', 'is_active', 'created_at')
-#     search_fields = ('user__username', 'ad_account_id', 'account_name')
-#     list_filter = ('platform', 'is_active')
-#     date_hierarchy = 'created_at'
+@admin.register(AdIntegration)
+class AdIntegrationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'platform', 'ad_account_id', 'account_name', 'currency', 'is_active', 'created_at')
+    search_fields = ('user__username', 'ad_account_id', 'account_name')
+    list_filter = ('platform', 'is_active')
+    date_hierarchy = 'created_at'
 
 # @admin.register(UnifiedCampaign)
 # class CampaignAdmin(admin.ModelAdmin):

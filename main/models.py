@@ -36,7 +36,7 @@ class AdIntegration(models.Model):
     platform = models.CharField(max_length=20, choices=Platform.choices)
     
     # The external Ad Account ID (e.g., act_12345678 or 758264...)
-    ad_account_id = models.CharField(max_length=100)
+    ad_account_id = models.CharField(max_length=100, null=True, blank=True)
     
     # Auth Tokens
     access_token = models.TextField()
