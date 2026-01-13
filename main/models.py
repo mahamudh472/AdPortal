@@ -24,6 +24,10 @@ class UnifiedStatus(models.TextChoices):
     ERROR = 'ERROR'
     ARCHIVED = 'ARCHIVED'
 
+class BudgetType(models.TextChoices):
+    ONETIME = 'ONETIME'
+    DAILY = 'DAILY'
+
 class AdIntegration(models.Model):
     """
     Stores the connection between your user and the external platform.
@@ -68,6 +72,8 @@ class UnifiedCampaign(models.Model):
         choices=UnifiedStatus.choices,
         default=UnifiedStatus.PAUSED
     )
+
+    budget_type = models.CharField(max_length=20, choices=BudgetType, default=BudgetType.DAILY)
 
     daily_budget_minor = models.BigIntegerField(
         help_text="Stored in minor units (e.g. cents)"
