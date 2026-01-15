@@ -1,5 +1,6 @@
 from datetime import timedelta
 from os import access, stat
+from requests.exceptions import RetryError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,6 +11,22 @@ from django.utils.timezone import now
 from accounts.models import User
 from main.models import AdIntegration, Platform
 from rest_framework import status
+
+def fetch_tiktok_ads_account(user):
+	ad_profile = AdIntegration.objects.filter(user=user, platform=Platform.TIKTOK)
+	if ad_profile.exists():
+		access_token = ad_profile.first().access_token
+		advertisers = requests.get(
+		    "https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/",
+		    headers={"Access-Token": access_token},
+		    params={"app_id": settings.TIKTOK_APP_ID, 'secret': settings.TIKTOK_APP_SECRET}
+		).json()
+
+		data = advertisers['data']['list']
+		for item in data:
+			item['id'] = item.pop('advertiser_id')
+		return {'data': data}
+	return None
 
 def fetch_meta_ads_account(user):
 	ad_profile = AdIntegration.objects.filter(user=user, platform=Platform.META)
@@ -49,7 +66,7 @@ class MetaCallback(APIView):
 	        "https://graph.facebook.com/v18.0/oauth/access_token",
 	        params={
 	            "client_id": settings.META_APP_ID,
-	            "client_secret": settings.META_APP_SECRATE,
+	            "client_secret": settings.META_APP_SECRET,
 	            "redirect_uri": 'https://sisterlike-tastelessly-mike.ngrok-free.dev/api/auth/meta/callback/',
 	            "code": code,
 	        },
@@ -82,15 +99,84 @@ class MetaCallback(APIView):
 
 		return Response({"Successful"})
 
+class TikTokConnect(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def get(self, request, *args, **kwargs):
+		params = {
+	        "app_id": settings.TIKTOK_APP_ID,
+	        "redirect_uri": "https://sisterlike-tastelessly-mike.ngrok-free.dev/api/auth/tiktok/callback/",
+	        "state": request.user.id,
+	        "response_type": "code",
+	        "scope": "advertiser.read,ads.read",
+	    }
+		print(settings.TIKTOK_APP_ID)
+		url = "https://business-api.tiktok.com/portal/auth?" + urlencode(params)
+
+		return Response({'redirect_url': url})
+
+class TikTokCallback(APIView):
+
+	def get(self, request, *args, **kwargs):
+		code = request.GET.get("code")
+		user_id = request.GET.get('state')
+		user = User.objects.get(id=str(user_id))
+
+		res = requests.post(
+	        "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+	        json={
+	            "app_id": settings.TIKTOK_APP_ID,
+	            "secret": settings.TIKTOK_APP_SECRET,
+	            "auth_code": code,
+	        },
+	    ).json()
+
+		data = res["data"]
+		print(res)
+
+		access_token = data["access_token"]
+		# refresh_token = data["refresh_token"]
+		expires_in = data.get("expires_in", 60 * 60)
+
+		exprires_at = now() + timedelta(seconds=expires_in)
+
+		user_info = requests.get(
+		    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+		    headers={"Access-Token": access_token},
+		).json()
+
+		print(user_info)
+
+		ad_profile, created = AdIntegration.objects.update_or_create(
+			user=user,
+			platform=Platform.TIKTOK,
+			defaults={
+				"access_token":access_token,
+				"token_expires_at":exprires_at,
+				"account_name":user_info['data'].get('display_name')	
+			}
+			
+		)
+
+		print(ad_profile, created)
+
+		return Response("Successful")
+
+
+
 class AdProfileListView(APIView):
 	permission_classes = [IsAuthenticated]
 
 	def get(self, request, *args, **kwargs):
 		user = request.user
 		platform = request.GET.get('platform', "META").upper()
-		meta_profiles = fetch_meta_ads_account(user)
+		profiles = None
+		if platform == "META":
+			profiles = fetch_meta_ads_account(user)
+		elif platform == "TIKTOK":
+			profiles = fetch_tiktok_ads_account(user)
 
-		return Response(meta_profiles)
+		return Response(profiles)
 
 class SelectAdProfileView(APIView):
 	permission_classes = [IsAuthenticated]

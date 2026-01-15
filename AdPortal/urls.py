@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from main.integration_handler import MetaConnect, MetaCallback
+from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -25,6 +25,8 @@ urlpatterns = [
     path('api/finance/', include('finance.urls')),
     path('api/main/', include('main.urls')),
     path('api/auth/meta/connect/', MetaConnect.as_view()),
-    path('api/auth/meta/callback/', MetaCallback.as_view())
+    path('api/auth/meta/callback/', MetaCallback.as_view()),
+    path('api/auth/tiktok/connect/', TikTokConnect.as_view()),
+    path('api/auth/tiktok/callback/', TikTokCallback.as_view())
 
 ]
