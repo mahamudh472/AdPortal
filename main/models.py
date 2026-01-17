@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 
 class Platform(models.TextChoices):
     META = 'META', 'Meta (Facebook/Instagram)'
@@ -55,12 +56,12 @@ class AdIntegration(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.platform} ({self.ad_account_id})"
-    
+
 
 class UnifiedCampaign(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, unique=True)
 
     objective = models.CharField(
         max_length=20,
@@ -73,11 +74,6 @@ class UnifiedCampaign(models.Model):
         default=UnifiedStatus.PAUSED
     )
 
-    budget_type = models.CharField(max_length=20, choices=BudgetType, default=BudgetType.DAILY)
-
-    daily_budget_minor = models.BigIntegerField(
-        help_text="Stored in minor units (e.g. cents)"
-    )
     currency = models.CharField(max_length=3, default="USD")
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -85,6 +81,21 @@ class UnifiedCampaign(models.Model):
 
     def __str__(self):
         return self.name
+
+class CampaignBudget(models.Model):
+    campaign = models.ForeignKey(UnifiedCampaign, on_delete=models.CASCADE)
+    platform = models.CharField(max_length=20, choices=Platform)
+
+    budget_type = models.CharField(max_length=20, choices=BudgetType, default=BudgetType.DAILY)
+
+    daily_budget_minor = models.BigIntegerField(
+        help_text="Stored in minor units (e.g. cents)"
+    )
+
+    start_date = models.DateField()
+    end_date = models.DateField(blank=True, null=True)
+    run_continuously = models.BooleanField(default=False)
+
 
 class PlatformCampaign(models.Model):
     unified_campaign = models.ForeignKey(
@@ -134,13 +145,6 @@ class PlatformCampaign(models.Model):
 
     def __str__(self):
         return f"{self.unified_campaign.name} [{self.integration.platform}]"
-
-
-from django.db import models
-from django.utils.translation import gettext_lazy as _
-from django.utils import timezone
-
-from .models import PlatformCampaign, UnifiedStatus
 
 
 class AdGroup(models.Model):

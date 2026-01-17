@@ -1,10 +1,21 @@
-from main.models import UnifiedCampaign
+from django.utils import choices
+from main.models import BudgetType, UnifiedCampaign
 from rest_framework import serializers
 import json
+
+
 class CampaignSerializer(serializers.ModelSerializer):
     class Meta:
         model = UnifiedCampaign
         fields = '__all__'
+
+class BudgetItemSerializer(serializers.Serializer):
+    platform=serializers.CharField()
+    budget_type = serializers.CharField(max_length=20)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    budget = serializers.IntegerField()
+    run_continuously = serializers.BooleanField()
 
 class CreateAdSerializer(serializers.Serializer):
     platforms = serializers.ListField(
@@ -14,10 +25,7 @@ class CreateAdSerializer(serializers.Serializer):
     objective = serializers.CharField(max_length=20)
 
     # budget
-    budget_type = serializers.CharField(max_length=20)
-    start_date = serializers.DateField()
-    end_date = serializers.DateField()
-    budget = serializers.IntegerField()
+    budgets = BudgetItemSerializer(many=True)
 
     # Target audience 
     min_age = serializers.IntegerField()
