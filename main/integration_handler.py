@@ -9,11 +9,12 @@ from django.conf import settings
 import requests
 from django.utils.timezone import now
 from accounts.models import User
-from main.models import AdIntegration, Platform
+from main.models import AdIntegration, Platform, Organization
 from rest_framework import status
 
 def fetch_tiktok_ads_account(user):
-	ad_profile = AdIntegration.objects.filter(user=user, platform=Platform.TIKTOK)
+	organization = Organization.objects.get(organizationmember__user=user)
+	ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.TIKTOK)
 	if ad_profile.exists():
 		access_token = ad_profile.first().access_token
 		advertisers = requests.get(
@@ -29,7 +30,8 @@ def fetch_tiktok_ads_account(user):
 	return None
 
 def fetch_meta_ads_account(user):
-	ad_profile = AdIntegration.objects.filter(user=user, platform=Platform.META)
+	organization = Organization.objects.get(organizationmember__user=user)
+	ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META)
 	if ad_profile.exists():
 		access_token = ad_profile.first().access_token
 		ad_accounts = requests.get(
@@ -83,9 +85,9 @@ class MetaCallback(APIView):
 		    params={"access_token": access_token},
 		).json()
 		print("User Info:", me)
-
+		organization = Organization.objects.get(organizationmember__user=user)
 		ad_profile = AdIntegration.objects.update_or_create(
-			user=user,
+			organization=organization,
 			platform=Platform.META,
 			defaults={
 				"access_token":access_token,
@@ -146,9 +148,9 @@ class TikTokCallback(APIView):
 		).json()
 
 		print(user_info)
-
+		organization = Organization.objects.get(organizationmember__user=user)
 		ad_profile, created = AdIntegration.objects.update_or_create(
-			user=user,
+			organization=organization,
 			platform=Platform.TIKTOK,
 			defaults={
 				"access_token":access_token,
@@ -188,8 +190,9 @@ class SelectAdProfileView(APIView):
 		if not platform or not account_id:
 			return Response({'error': 'platfrom or account id is not provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-		user = request.user 
-		integration = AdIntegration.objects.filter(user=user, platform=platform)
+		user = request.user
+		organization = Organization.objects.get(organizationmember__user=user)
+		integration = AdIntegration.objects.filter(organization=organization, platform=platform)
 		if not integration.exists():
 			return Response({'error': 'Integration not found'}, status=status.HTTP_400_BAD_REQUEST)
 

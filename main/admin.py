@@ -1,10 +1,23 @@
 from django.contrib import admin
-from .models import UnifiedCampaign, AdIntegration, Platform, UnifiedObjective, UnifiedStatus, AdGroup
+from .models import (
+    Organization, OrganizationMember,
+    UnifiedCampaign, AdIntegration, 
+    Platform, UnifiedObjective, UnifiedStatus, 
+    AdGroup
+)
+
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ('owner', 'name', 'created_at')
+
+@admin.register(OrganizationMember)
+class OrganizationMemberAdmin(admin.ModelAdmin):
+    pass
 
 @admin.register(AdIntegration)
 class AdIntegrationAdmin(admin.ModelAdmin):
-    list_display = ('user', 'platform', 'ad_account_id', 'account_name', 'currency', 'is_active', 'created_at')
-    search_fields = ('user__username', 'ad_account_id', 'account_name')
+    list_display = ('organization', 'platform', 'ad_account_id', 'account_name', 'currency', 'is_active', 'created_at')
+    search_fields = ('organization__name', 'ad_account_id', 'account_name')
     list_filter = ('platform', 'is_active')
 
 @admin.register(UnifiedCampaign)

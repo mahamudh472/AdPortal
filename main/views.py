@@ -1,22 +1,24 @@
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from .serializers import CampaignSerializer, CreateAdSerializer
-from .models import UnifiedCampaign, UnifiedStatus
+from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
 from main.utils.object_handlers import create_unified_campaign
+from accounts.permissions import IsRegularPlatformUser
 
 class CampaignListAPIView(generics.ListAPIView):
 	serializer_class = CampaignSerializer
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def get_queryset(self):
-		queryset = UnifiedCampaign.objects.filter(user=self.request.user)
+		organization = Organization.objects.get(organizationmember__user=self.request.user)
+		queryset = UnifiedCampaign.objects.filter(organization=organization)
 		return queryset
 
 class CreateAdAPIView(generics.GenericAPIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 	
 	def post(self, request, *args, **kwargs):
-		serializer = CreateAdSerializer(data=request.data)
+		serializer = CreateAdSerializer(data=request.data, context={'request': request})
 		user = request.user
 		if serializer.is_valid(raise_exception=True):
 			data = serializer.validated_data

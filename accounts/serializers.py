@@ -4,9 +4,10 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
 class RegisterSerializer(serializers.ModelSerializer):
+    timezone = serializers.CharField(required=True)
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'password']
+        fields = ['id', 'first_name', 'last_name', 'email', 'password', 'timezone']
     def create(self, validated_data):
         user = User.objects.create_user(
             email=validated_data['email'],

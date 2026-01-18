@@ -79,7 +79,7 @@ class VerifyEmailView(GenericAPIView):
                 otp_record = OTP.objects.get(user__email=email, code=input_otp)
                 if otp_record.is_valid():
                     user = otp_record.user
-                    user.is_verified = True
+                    user.is_active = True
                     user.save()
                     otp_record.is_used = True
                     otp_record.save()

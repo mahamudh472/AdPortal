@@ -2,6 +2,7 @@ from django.utils import choices
 from main.models import BudgetType, UnifiedCampaign
 from rest_framework import serializers
 import json
+from rest_framework.validators import UniqueValidator
 
 
 class CampaignSerializer(serializers.ModelSerializer):
@@ -21,7 +22,7 @@ class CreateAdSerializer(serializers.Serializer):
     platforms = serializers.ListField(
         child=serializers.CharField(max_length=20)
     )
-    campaign_name = serializers.CharField(max_length=100)
+    campaign_name = serializers.CharField(max_length=100, validators=[UniqueValidator(queryset=UnifiedCampaign.objects.all())])
     objective = serializers.CharField(max_length=20)
 
     # budget
@@ -64,6 +65,7 @@ class CreateAdSerializer(serializers.Serializer):
                 })
 
         return super().to_internal_value(data)
+
 
 
 

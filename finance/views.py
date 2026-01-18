@@ -49,7 +49,11 @@ class GetPlanAPIView(GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
 	def get(self, request, *args, **kwargs):
-		subscription = Subscription.objects.filter(user=request.user, status='active').select_related('plan').first()
+		subscription = Subscription.objects.filter(user=request.user, status='active').select_related('plan')
+		if not subscription.exists():
+			return Response({'error': "No active subscription found."}, status=status.HTTP_404_NOT_FOUND)
+		
+		subscription = subscription.first()
 
 		plan_name = subscription.plan.name
 		campaign_limit = subscription.plan.features.filter(key="feature_1").first().value.split()[0]

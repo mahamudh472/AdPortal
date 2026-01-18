@@ -29,11 +29,31 @@ class BudgetType(models.TextChoices):
     ONETIME = 'ONETIME'
     DAILY = 'DAILY'
 
+class OrganizationRole(models.TextChoices):
+    OWNER = "OWNER", "Owner"
+    ADMIN = "ADMIN", "Admin"
+    MEMBER = "MEMBER", "MEMBER"
+
+class Organization(models.Model):
+    name = models.CharField(max_length=255, blank=True, null=True)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_organizations")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class OrganizationMember(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=OrganizationRole.choices)
+
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name="sent_org_invites")
+
+    class Meta:
+        unique_together = ('user', 'organization')
+
 class AdIntegration(models.Model):
     """
     Stores the connection between your user and the external platform.
     """
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='integrations')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='integrations')
     platform = models.CharField(max_length=20, choices=Platform.choices)
     
     # The external Ad Account ID (e.g., act_12345678 or 758264...)
@@ -52,14 +72,14 @@ class AdIntegration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'platform', 'ad_account_id')
+        unique_together = ('organization', 'platform', 'ad_account_id')
 
     def __str__(self):
-        return f"{self.user.username} - {self.platform} ({self.ad_account_id})"
+        return f"{self.organization.name} - {self.platform} ({self.ad_account_id})"
 
 
 class UnifiedCampaign(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, unique=True)
 
@@ -260,7 +280,7 @@ class AdAsset(models.Model):
     Stores the actual files (Images/Videos) uploaded by the user to YOUR server
     before they are sent to Facebook/TikTok.
     """
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     file = models.FileField(upload_to='ad_assets/')
     file_type = models.CharField(max_length=10, choices=[('IMAGE', 'Image'), ('VIDEO', 'Video')])
     
