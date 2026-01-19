@@ -27,6 +27,8 @@ urlpatterns = [
     path('api/auth/meta/connect/', MetaConnect.as_view()),
     path('api/auth/meta/callback/', MetaCallback.as_view()),
     path('api/auth/tiktok/connect/', TikTokConnect.as_view()),
-    path('api/auth/tiktok/callback/', TikTokCallback.as_view())
+    path('api/auth/tiktok/callback/', TikTokCallback.as_view()),
+
+    path('silk/', include('silk.urls', namespace='silk')),
 
 ]

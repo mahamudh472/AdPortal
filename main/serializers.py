@@ -22,7 +22,7 @@ class CreateAdSerializer(serializers.Serializer):
     platforms = serializers.ListField(
         child=serializers.CharField(max_length=20)
     )
-    campaign_name = serializers.CharField(max_length=100, validators=[UniqueValidator(queryset=UnifiedCampaign.objects.all())])
+    campaign_name = serializers.CharField(max_length=100, source='name', validators=[UniqueValidator(queryset=UnifiedCampaign.objects.all())])
     objective = serializers.CharField(max_length=20)
 
     # budget

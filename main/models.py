@@ -303,7 +303,8 @@ class Ad(models.Model):
     
     # The Creative Details
     headline = models.CharField(max_length=255, null=True, blank=True)
-    body_text = models.TextField(null=True, blank=True)
+    primary_text = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
     destination_url = models.URLField()
 
     call_to_action = models.CharField(

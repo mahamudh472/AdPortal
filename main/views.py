@@ -20,13 +20,12 @@ class CreateAdAPIView(generics.GenericAPIView):
 	def post(self, request, *args, **kwargs):
 		serializer = CreateAdSerializer(data=request.data, context={'request': request})
 		user = request.user
+		print(request.data)
 		if serializer.is_valid(raise_exception=True):
 			data = serializer.validated_data
 			campaign = create_unified_campaign(
 				user=user,
-				name=data.get('campaign_name'),
-				objective=data.get('objective'),
-				budgets=data.get('budgets')
+				data=serializer.validated_data,
 			)
 			print(serializer.validated_data)
 			return Response(serializer.data)
