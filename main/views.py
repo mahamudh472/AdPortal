@@ -6,14 +6,26 @@ from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
 from accounts.permissions import IsRegularPlatformUser
+from rest_framework.filters import SearchFilter
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.pagination import PageNumberPagination
+
+class CampaignPagination(PageNumberPagination):
+	page_size = 10
+	page_size_query_param = 'page_size'
+	max_page_size = 100
 
 class CampaignListAPIView(generics.ListAPIView):
 	serializer_class = CampaignSerializer
 	permission_classes = [IsRegularPlatformUser]
+	filter_backends = [SearchFilter, DjangoFilterBackend]
+	pagination_class = CampaignPagination
+	search_fields = ['name', 'objective']
+	filterset_fields = ['status']
 
 	def get_queryset(self):
 		organization = Organization.objects.get(organizationmember__user=self.request.user)
-		queryset = UnifiedCampaign.objects.filter(organization=organization)
+		queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
 		return queryset
 
 class CreateAdAPIView(generics.GenericAPIView):

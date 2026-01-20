@@ -6,9 +6,35 @@ from rest_framework.validators import UniqueValidator
 
 
 class CampaignSerializer(serializers.ModelSerializer):
+    platforms = serializers.SerializerMethodField()
+    total_budget = serializers.SerializerMethodField()
+    total_spent = serializers.SerializerMethodField()
+    impressions = serializers.SerializerMethodField()
+    clicks = serializers.SerializerMethodField()
+    conversions = serializers.SerializerMethodField()
+    ctr = serializers.SerializerMethodField()
+    roas = serializers.SerializerMethodField()
     class Meta:
         model = UnifiedCampaign
         fields = '__all__'
+
+    # TODO : Implement the methods to calculate the metrics
+    def get_platforms(self, obj):
+        return [pc.integration.platform for pc in obj.platform_campaigns.all()]
+    def get_total_budget(self, obj):
+        return 0
+    def get_total_spent(self, obj):
+        return 0
+    def get_impressions(self, obj):
+        return 0
+    def get_clicks(self, obj):
+        return 0
+    def get_conversions(self, obj):
+        return 0
+    def get_ctr(self, obj):
+        return 0
+    def get_roas(self, obj):
+        return 0
 
 class BudgetItemSerializer(serializers.Serializer):
     platform=serializers.CharField()
