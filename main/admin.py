@@ -2,8 +2,8 @@ from django.contrib import admin
 from .models import (
     Organization, OrganizationMember,
     UnifiedCampaign, AdIntegration, 
-    Platform, UnifiedObjective, UnifiedStatus, 
-    AdGroup
+    PlatformCampaign, UnifiedObjective, UnifiedStatus, 
+    AdGroup, Ad, AdAsset
 )
 
 @admin.register(Organization)
@@ -25,6 +25,13 @@ class CampaignAdmin(admin.ModelAdmin):
     list_display = ('name', 'objective', 'status', 'created_at', 'updated_at')
     search_fields = ('name', 'platform_campaign_id')
     list_filter = ('objective', 'status')
+
+admin.site.register(PlatformCampaign)
+admin.site.register(AdGroup)
+admin.site.register(Ad)
+admin.site.register(AdAsset)
+        
+
 
 # @admin.register(AdGroup)
 # class AdGroupAdmin(admin.ModelAdmin):

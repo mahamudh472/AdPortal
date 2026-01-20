@@ -28,11 +28,14 @@ def create_unified_campaign(user, data):
 			}
 		)
 
-	# Create PlatformCampaign
+	return campaign
+
+@transaction.atomic
+def create_full_ad_for_platform(campaign, data, platform):
 
 	platform_campaign = PlatformCampaign.objects.create(
 		unified_campaign=campaign,
-		integration=AdIntegration.objects.get(platform=budget['platform']),
+		integration=AdIntegration.objects.get(platform=platform),
 		platform_campaign_id=None,
 	)
 
@@ -53,7 +56,7 @@ def create_unified_campaign(user, data):
 		ad_file = data.get('ad_file')
 		file_type = ad_file.content_type
 		
-		AdAsset.objects.create(
+		ad_asset = AdAsset.objects.create(
 			organization=campaign.organization,
 			file=ad_file,
 			file_type=file_type
@@ -68,7 +71,7 @@ def create_unified_campaign(user, data):
 		description=data.get('description', ""),
 		call_to_action=data.get('call_to_action', ""),
 		destination_url=data.get('destination_url', ""),
-		platform_asset_id=None
 	)
-
-	return campaign
+	if data.get('ad_file'):
+		ad.assets.add(ad_asset)
+	return ad

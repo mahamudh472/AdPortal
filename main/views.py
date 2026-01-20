@@ -2,7 +2,9 @@ from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from .serializers import CampaignSerializer, CreateAdSerializer
 from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
-from main.utils.object_handlers import create_unified_campaign
+from main.utils.object_handlers import (
+    create_unified_campaign, create_full_ad_for_platform
+)
 from accounts.permissions import IsRegularPlatformUser
 
 class CampaignListAPIView(generics.ListAPIView):
@@ -27,7 +29,10 @@ class CreateAdAPIView(generics.GenericAPIView):
 				user=user,
 				data=serializer.validated_data,
 			)
-			print(serializer.validated_data)
-			return Response(serializer.data)
+			for platform in data['platforms']:
+				create_full_ad_for_platform(campaign, data, platform)
+			
+			return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
 		else:
 			return Response({'error': 'Error creating Ad'}, status=status.HTTP_400_BAD_REQUEST)
+		

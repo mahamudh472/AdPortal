@@ -283,10 +283,26 @@ class AdAsset(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     file = models.FileField(upload_to='ad_assets/')
     file_type = models.CharField(max_length=10, choices=[('IMAGE', 'Image'), ('VIDEO', 'Video')])
+
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('DRAFT', 'Draft'),
+            ('UPLOADED', 'Uploaded'),
+            ('IN_USE', 'In Use'),
+            ('ARCHIVED', 'Archived'),
+        ],
+        default='DRAFT'
+    )
+
+    is_locked = models.BooleanField(default=False)
     
     # Hash is useful to check if file already exists on Facebook
     file_hash = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('organization', 'file_hash')
 
 class PlatformAsset(models.Model):
     asset = models.ForeignKey(AdAsset, on_delete=models.CASCADE)
@@ -315,11 +331,11 @@ class Ad(models.Model):
 
     
     # Link to the local asset
-    asset = models.ForeignKey(AdAsset, on_delete=models.SET_NULL, null=True)
-    
-    # Store the ID returned by the platform's asset upload (e.g., the Image Hash or Video ID)
-    platform_asset_id = models.CharField(max_length=255, null=True, blank=True)
-    
+    assets = models.ManyToManyField(
+        AdAsset,
+        related_name="used_in_ads"
+    )
+
     preview_link = models.URLField(null=True, blank=True)
 
     def __str__(self):
