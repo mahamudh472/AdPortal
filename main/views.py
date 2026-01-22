@@ -1,6 +1,8 @@
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
-from .serializers import CampaignSerializer, CreateAdSerializer
+from .serializers import (
+    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer
+)
 from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
@@ -9,6 +11,9 @@ from accounts.permissions import IsRegularPlatformUser
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
+from .ai_services import generate_ad_copy
+from finance.models import Payment
+from .serializers import BillingHistorySerializer
 
 class CampaignPagination(PageNumberPagination):
 	page_size = 10
@@ -47,4 +52,24 @@ class CreateAdAPIView(generics.GenericAPIView):
 			return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
 		else:
 			return Response({'error': 'Error creating Ad'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AICopyGeneratorAPIView(generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser]
+	serializer_class = AICopyRequestSerializer
+
+	def post(self, request, *args, **kwargs):
+		serializer = self.get_serializer(data=request.data)
+		if not serializer.is_valid():
+			return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+		data = serializer.validated_data
+		generated_copy = generate_ad_copy(
+			product=data['product'],
+			audience=data['audience'],
+			benefits=data['benefits'],
+			tone=data['tone'],
+			copy_type=data['copy_type']
+		)
 		
+		return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
+

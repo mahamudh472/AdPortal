@@ -1,6 +1,8 @@
 from django.db import models
 from django.conf import settings
 
+from main.models import Organization
+
 User = settings.AUTH_USER_MODEL
 
 
@@ -54,8 +56,8 @@ class Subscription(models.Model):
         ("incomplete", "Incomplete"),
     )
 
-    user = models.ForeignKey(
-        User, related_name="subscriptions", on_delete=models.CASCADE
+    organization = models.ForeignKey(
+        Organization, related_name="subscriptions", on_delete=models.CASCADE
     )
     plan = models.ForeignKey(
         Plan, on_delete=models.PROTECT
@@ -80,7 +82,7 @@ class Subscription(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.user} → {self.plan.name} ({self.status})"
+        return f"{self.organization} → {self.plan.name} ({self.status})"
 
     @property
     def is_active(self):
@@ -93,8 +95,8 @@ class Payment(models.Model):
         ("refunded", "Refunded"),
     )
 
-    user = models.ForeignKey(
-        User, related_name="payments", on_delete=models.CASCADE
+    organization = models.ForeignKey(
+        Organization, related_name="payments", on_delete=models.CASCADE
     )
 
     subscription = models.ForeignKey(
@@ -125,11 +127,11 @@ class Payment(models.Model):
     raw_payload = models.JSONField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.user} | {self.amount} {self.currency} | {self.status}"
+        return f"{self.organization} | {self.amount} {self.currency} | {self.status}"
 
 class UsageRecord(models.Model):
-    user = models.ForeignKey(
-        User, related_name="usage_records", on_delete=models.CASCADE
+    organization = models.ForeignKey(
+        Organization, related_name="usage_records", on_delete=models.CASCADE
     )
 
     subscription = models.ForeignKey(
@@ -146,14 +148,14 @@ class UsageRecord(models.Model):
 
     class Meta:
         unique_together = (
-            "user",
+            "organization",
             "feature_key",
             "period_start",
             "period_end",
         )
 
     def __str__(self):
-        return f"{self.user} | {self.feature_key} = {self.used}"
+        return f"{self.organization} | {self.feature_key} = {self.used}"
 
 
 

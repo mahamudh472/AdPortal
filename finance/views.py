@@ -2,14 +2,18 @@ from datetime import timedelta
 from typing import Generator
 from django.db.models import Sum
 from django.utils import timezone
+from openai import organization
 from rest_framework.generics import ListAPIView, GenericAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from accounts.permissions import IsRegularPlatformUser
 from .serializers import PlanSerializer, SubscriptionSerializer
 from main import serializers
-from .models import Plan, Subscription
+from .models import Payment, Plan, Subscription
 from rest_framework.exceptions import ValidationError
 from rest_framework import status
+from main.models import Organization
 
 
 class PlanListAPIView(ListAPIView):
@@ -31,12 +35,13 @@ class BuyPlanAPIView(GenericAPIView):
 
 		# TODO: Create checkout session
 		# Currently creating directly for testing.
-		subscription = Subscription.objects.filter(plan=plan.first(), user=request.user)
+		organization = Organization.objects.get(organizationmember__user=request.user)
+		subscription = Subscription.objects.filter(plan=plan.first(), organization=organization)
 
 		if subscription.exists():
 			return Response({"message": "Subscription already exists"}, status=status.HTTP_200_OK)
 		Subscription.objects.create(
-				user=request.user,
+				organization=organization,
 				plan=plan.first(),
 				status='active',
 				current_period_start=timezone.now(),
@@ -49,7 +54,8 @@ class GetPlanAPIView(GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
 	def get(self, request, *args, **kwargs):
-		subscription = Subscription.objects.filter(user=request.user, status='active').select_related('plan')
+		organization = Organization.objects.get(organizationmember__user=request.user)
+		subscription = Subscription.objects.filter(organization=organization, status='active').select_related('plan')
 		if not subscription.exists():
 			return Response({'error': "No active subscription found."}, status=status.HTTP_404_NOT_FOUND)
 		
@@ -65,3 +71,15 @@ class GetPlanAPIView(GenericAPIView):
 				'campaign_used': campaign_used
 			})
 
+
+class BillingHistoryAPIView(GenericAPIView):
+	permission_classes = [IsRegularPlatformUser]
+
+	def get(self, request, *args, **kwargs):
+		user = request.user
+		organization = Organization.objects.get(organizationmember__user=user)
+		# Assuming BillingHistory model exists and has a foreign key to Organization
+		billing_history = Payment.objects.filter(organization=organization).order_by('-paid_at')
+
+		serializer = serializers.BillingHistorySerializer(billing_history, many=True)
+		return Response(serializer.data, status=status.HTTP_200_OK)

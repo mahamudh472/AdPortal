@@ -3,7 +3,7 @@ from main.models import BudgetType, UnifiedCampaign
 from rest_framework import serializers
 import json
 from rest_framework.validators import UniqueValidator
-
+from finance.models import Payment
 
 class CampaignSerializer(serializers.ModelSerializer):
     platforms = serializers.SerializerMethodField()
@@ -92,8 +92,21 @@ class CreateAdSerializer(serializers.Serializer):
 
         return super().to_internal_value(data)
 
+class AICopyRequestSerializer(serializers.Serializer):
+    product = serializers.CharField(max_length=200)
+    audience = serializers.CharField(max_length=200)
+    benefits = serializers.CharField()
+    tone = serializers.ChoiceField(choices=['Professional', 'Casual', 'Friendly'])
+    copy_type = serializers.ChoiceField(choices=['Headlines', 'Primary Text', 'Descriptions', 'CTAs'])
 
 
-
-
+class BillingHistorySerializer(serializers.ModelSerializer):
+    invoice_url = serializers.SerializerMethodField()
+    class Meta:
+        model = Payment
+        fields =['amount', 'status', 'paid_at', 'invoice_url']
+    
+    def get_invoice_url(self, obj):
+        # TODO: Replace with actual logic to generate invoice URL
+        return f"https://billing.example.com/invoices/{obj.id}"
 
