@@ -1,18 +1,17 @@
-
+from django.utils import timezone
 import stripe
+
 from django.views import View
 from django.http import HttpResponse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
-from .models import Enrollment, Course
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
+from finance.models import Payment, Subscription
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
-endpoint_secret = settings.STRIPE_WEBHOOK_SECRET  # Get from Stripe Dashboard
+endpoint_secret = settings.HTTP_STRIPE_SIGNATURE
+
 
 @method_decorator(csrf_exempt, name='dispatch')
 class StripeWebhookView(View):
@@ -33,15 +32,34 @@ class StripeWebhookView(View):
         # Handle the event type
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            user_id = session.get("metadata", {}).get("user_id")
-            course_id = session.get("metadata", {}).get("course_id")
 
-            if user_id and course_id:
-                user = User.objects.get(id=user_id)
-                course = Course.objects.get(id=course_id)
+            plan_id = session['metadata']['plan_id']
+            organization_id = session['metadata']['organization_id']
 
-                # Avoid duplicate enrollment
-                if not Enrollment.objects.filter(student=user, course=course).exists():
-                    Enrollment.objects.create(student=user, course=course)
+            try:
+                subscription = Subscription.objects.get(
+                    organization_id=organization_id,
+                    plan_id=plan_id,
+                    status='incomplete'
+                )
+                subscription.status = 'active'
+                subscription.current_period_start = timezone.now()
+                subscription.current_period_end = timezone.now() + timezone.timedelta(days=30)
+                subscription.save()
+
+                payment = Payment.objects.create(
+                    organization_id=organization_id,
+                    subscription=subscription,
+                    amount=subscription.plan.price,
+                    status='paid',
+                    paid_at=timezone.now(),
+                    stripe_payment_intent_id=session.get('payment_intent'),
+                    stripe_invoice_id=session.get('invoice'),
+                    raw_payload=session
+                )
+            except Subscription.DoesNotExist:
+                pass
+            except Payment.DoesNotExist:
+                pass
 
         return HttpResponse(status=200)

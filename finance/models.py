@@ -71,8 +71,8 @@ class Subscription(models.Model):
         max_length=20, choices=STATUS_CHOICES, default="trialing"
     )
 
-    current_period_start = models.DateTimeField()
-    current_period_end = models.DateTimeField()
+    current_period_start = models.DateTimeField(blank=True, null=True)
+    current_period_end = models.DateTimeField(blank=True, null=True)
 
     cancel_at_period_end = models.BooleanField(default=False)
 
@@ -108,7 +108,7 @@ class Payment(models.Model):
     )
 
     stripe_payment_intent_id = models.CharField(
-        max_length=255, unique=True
+        max_length=255, blank=True, null=True
     )
     stripe_invoice_id = models.CharField(
         max_length=255, blank=True, null=True

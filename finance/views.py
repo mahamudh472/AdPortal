@@ -18,7 +18,7 @@ from rest_framework import status
 from main.models import Organization
 import stripe
 from django.conf import settings
-stripe.api_key = settings.STRIPE_SECRATE_KEY
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 class PlanListAPIView(ListAPIView):
@@ -46,6 +46,12 @@ class BuyPlanAPIView(GenericAPIView):
 		if subscription.exists():
 			return Response({"message": "Subscription already exists"}, status=status.HTTP_200_OK)
 		
+		subscription = Subscription.objects.create(
+			organization=organization,
+			plan=plan.first(),
+			status='incomplete',
+		)
+
 		session = stripe.checkout.Session.create(
 			payment_method_types=['card'],
 			line_items=[{
@@ -60,25 +66,17 @@ class BuyPlanAPIView(GenericAPIView):
 				},
 				'quantity': 1
 			}],
-			mode='payment',
+			mode='subscription',
 			success_url='http://127.0.0.1:8000/success',
 			cancel_url='http://127.0.0.1:8000/cencel',
 			metadata={
 				'plan_id': str(plan.first().id),
-				'organization_id': str(organization.id)
+				'organization_id': str(organization.id),
 			}
 		)
-		return redirect(session.url)
+		
+		return Response({'checkout_url': session.url}, status=status.HTTP_200_OK)
 
-
-		Subscription.objects.create(
-				organization=organization,
-				plan=plan.first(),
-				status='active',
-				current_period_start=timezone.now(),
-				current_period_end=timezone.now() + timedelta(days=30)
-			)
-		return Response({'message': "Subscription created successfull"}, status=status.HTTP_201_CREATED)
 
 
 class GetPlanAPIView(GenericAPIView):
