@@ -181,3 +181,5 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': datetime.timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': datetime.timedelta(days=30)
 }
+
+STRIPE_SECRATE_KEY = os.getenv("STRIPE_SECRATE_KEY")

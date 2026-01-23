@@ -1,8 +1,10 @@
 from datetime import timedelta
 from typing import Generator
 from django.db.models import Sum
+from django.shortcuts import redirect
 from django.utils import timezone
 from openai import organization
+from requests import session
 from rest_framework.generics import ListAPIView, GenericAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,6 +16,9 @@ from .models import Payment, Plan, Subscription
 from rest_framework.exceptions import ValidationError
 from rest_framework import status
 from main.models import Organization
+import stripe
+from django.conf import settings
+stripe.api_key = settings.STRIPE_SECRATE_KEY
 
 
 class PlanListAPIView(ListAPIView):
@@ -40,6 +45,32 @@ class BuyPlanAPIView(GenericAPIView):
 
 		if subscription.exists():
 			return Response({"message": "Subscription already exists"}, status=status.HTTP_200_OK)
+		
+		session = stripe.checkout.Session.create(
+			payment_method_types=['card'],
+			line_items=[{
+				# Add multiple items
+				'price_data': {
+					'currency': 'usd',
+					'product_data':{
+						'name': f'{plan.first().name} Plan',
+					},
+					'unit_amount': int(plan.first().price * 100),  # Amount in cents
+					'recurring': {'interval': plan.first().interval},
+				},
+				'quantity': 1
+			}],
+			mode='payment',
+			success_url='http://127.0.0.1:8000/success',
+			cancel_url='http://127.0.0.1:8000/cencel',
+			metadata={
+				'plan_id': str(plan.first().id),
+				'organization_id': str(organization.id)
+			}
+		)
+		return redirect(session.url)
+
+
 		Subscription.objects.create(
 				organization=organization,
 				plan=plan.first(),
