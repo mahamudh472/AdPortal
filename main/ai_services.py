@@ -7,10 +7,15 @@ from django.conf import settings
 load_dotenv()
 
 # Initialize OpenAI Client
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+def get_openai_client():
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+    return OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 def generate_ad_copy(product, audience, benefits, tone, copy_type):
+
+    client = get_openai_client()
     """
     Generates ad copy variations using OpenAI.
 
