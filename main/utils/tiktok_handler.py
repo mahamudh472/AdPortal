@@ -1,12 +1,17 @@
 import requests
 import json
 import os
+from django.utils import timezone
+from datetime import timezone as dt_timezone
 from dotenv import load_dotenv
 load_dotenv()
+
+from main.models import UnifiedCampaign, PlatformCampaign
 
 # --- CONFIGURATION (SANDBOX) ---
 # ⚠️ TikTok Sandbox URL is different from Production!
 BASE_URL = "https://sandbox-ads.tiktok.com/open_api/v1.3"
+PRODUCTION_URL = "https://ads.tiktok.com/open_api/v1.3"
 
 # PASTE YOUR CREDENTIALS HERE
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
@@ -17,6 +22,107 @@ HEADERS = {
     "Access-Token": ACCESS_TOKEN,
     "Content-Type": "application/json"
 }
+
+def to_tiktok_datetime(dt):
+    """
+    Convert a Python datetime to TikTok Ads API format (UTC).
+    Output format: YYYY-MM-DD HH:MM:SS
+    """
+    if dt is None:
+        return None
+
+    # Ensure datetime is timezone-aware and in UTC
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, dt_timezone.utc)
+    else:
+        dt = dt.astimezone(dt_timezone.utc)
+
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+def create_platform_campaign_for_tiktok(campaign, integration, ADVERTISER_ID, ACCESS_TOKEN):
+    print(type(campaign))
+    platform_campaign = PlatformCampaign.objects.get(unified_campaign=campaign, integration=integration)
+    campaign_budget = campaign.campaignbudget_set.filter(platform='TIKTOK').first()
+    if platform_campaign.platform_campaign_id:
+        print("TikTok Campaign already exists. Skipping creation.")
+        return platform_campaign.platform_campaign_id
+    
+    url = f"{BASE_URL}/campaign/create/"
+    # ADVERTISER_ID = integration.ad_account_id
+    # ACCESS_TOKEN = integration.access_token
+    HEADERS["Access-Token"] = ACCESS_TOKEN
+    
+    payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "campaign_name": campaign.name,
+        "objective_type": campaign.objective, # Options: TRAFFIC, CONVERSIONS, REACH
+        "budget_mode": "BUDGET_MODE_DAY" if campaign_budget.budget_type == 'DAILY' else "BUDGET_MODE_TOTAL",
+        "budget": campaign_budget.daily_budget_minor, # Minimum is usually 50 in Sandbox
+    }
+    
+    res = requests.post(url, headers=HEADERS, json=payload)
+    data = res.json()
+    
+    if data['code'] != 0:
+        print(f"❌ Campaign Failed: {data['message']}")
+        return
+        
+    campaign_id = data['data']['campaign_id']
+    platform_campaign.platform_campaign_id = campaign_id
+    platform_campaign.save()
+    print(f"✅ Campaign Created: {campaign_id}")
+
+    return campaign_id
+    
+
+def create_ad_group_for_tiktok(campaign_id):
+    url = f"{BASE_URL}/adgroup/create/"
+    print(campaign_id)
+    platform_campaign = PlatformCampaign.objects.get(platform_campaign_id=campaign_id)
+    adgroup = platform_campaign.ad_groups.first()
+    # Ad Group requires stricter validation than Meta
+    payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "campaign_id": campaign_id,
+        "adgroup_name": adgroup.name,
+        "PLACEMENT_TYPE_NORMAL": "PLACEMENT_TYPE_NORMAL", # Only show on TikTok app
+        "placements": ["PLACEMENT_TIKTOK"],
+        "location_ids": ['6252001'],  # Sandbox usually supports 'US' or 'JP'
+        "budget_mode": "BUDGET_MODE_DAY",
+        "budget": 20.0,
+        "schedule_type": "SCHEDULE_START_END",
+        "schedule_start_time": to_tiktok_datetime(adgroup.start_time), # Future date
+        "schedule_end_time": to_tiktok_datetime(adgroup.end_time),
+        "billing_event": "CPC",
+        "bid_type": "", # Lowest Cost strategy
+        "optimization_goal": "CLICK",
+        "promotion_type": "WEBSITE", 
+    }
+    
+    res = requests.post(url, headers=HEADERS, json=payload)
+    data = res.json()
+    
+    if data['code'] != 0:
+        print(f"❌ Ad Group Failed: {data['message']}")
+        return
+
+    adgroup_id = data['data']['adgroup_id']
+    adgroup.platform_adgroup_id = adgroup_id
+    adgroup.save()
+    print(f"✅ Ad Group Created: {adgroup_id}")
+    return adgroup_id
+
+def upload_tiktok_video(campaign, integration):
+    pass
+
+def create_tiktok_ad_creative(campaign, integration):
+    pass
+
+def create_full_ad_for_tiktok(campaign, integration):
+
+    # TODO: Need to change to the actual values from campaign and integration
+    campaign_id = create_platform_campaign_for_tiktok(campaign, integration, integration.ad_account_id, integration.access_token)
+    adgroup_id = create_ad_group_for_tiktok(campaign_id)
 
 def create_tiktok_ad_flow():
     print(f"🚀 Starting TikTok Sandbox Flow for Advertiser: {ADVERTISER_ID}")
@@ -184,8 +290,8 @@ def get_single_campaign(campaign_id):
     print(f"\n📋 Campaign Details for ID {campaign_id}:")
     print(json.dumps(campaign, indent=4))
 
-def get_analytics():
-    url = f"{BASE_URL}/report/integrated/get/"
+def get_analytics(ACCESS_TOKEN=None, ADVERTISER_ID=None):
+    url = f"{PRODUCTION_URL}/report/integrated/get/"
     payload = {
         "advertiser_id": ADVERTISER_ID,
         "dimensions": json.dumps(["campaign_id"]), 
@@ -197,6 +303,7 @@ def get_analytics():
         "page": 1,
         "page_size": 50
     }
+    HEADERS["Access-Token"] = ACCESS_TOKEN
     
     res = requests.get(url, headers=HEADERS, params=payload)
 
@@ -207,12 +314,13 @@ def get_analytics():
     
     if data['code'] != 0:
         print(f"❌ Get Analytics Failed: {data['message']}")
-        return
+        return f"❌ Get Analytics Failed: {data['message']}"
     
     reports = data['data']['list']
     print("\n📊 Analytics Report:")
     for report in reports:
         print(report)
+    return reports
 
 if __name__ == '__main__':
     # create_tiktok_ad_flow()

@@ -1,5 +1,7 @@
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
+
+from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
     CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer
 )
@@ -39,7 +41,7 @@ class CreateAdAPIView(generics.GenericAPIView):
 	def post(self, request, *args, **kwargs):
 		serializer = CreateAdSerializer(data=request.data, context={'request': request})
 		user = request.user
-		print(request.data)
+
 		if serializer.is_valid(raise_exception=True):
 			data = serializer.validated_data
 			campaign = create_unified_campaign(
@@ -73,3 +75,29 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 		
 		return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
 
+class AnalyticsAPIView(generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser]
+
+	def get(self, request, *args, **kwargs):
+		organization = Organization.objects.get(organizationmember__user=request.user)
+		campaigns = UnifiedCampaign.objects.filter(organization=organization)
+		access_token = organization.integrations.get(platform='TIKTOK').access_token
+		from .utils.tiktok_handler import get_analytics as tiktok_analytics
+		data = tiktok_analytics(ACCESS_TOKEN=access_token, ADVERTISER_ID=organization.integrations.get(platform='TIKTOK').ad_account_id)
+		analytics_data = {
+			'data': data
+		}
+		
+		return Response(analytics_data, status=status.HTTP_200_OK)
+
+class CreatePlatformCampaignAPIView(generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser]
+
+	def post(self, request, *args, **kwargs):
+		from .utils.tiktok_handler import create_platform_campaign_for_tiktok
+		campaign_id = request.data.get('campaign_id')
+		campaign = UnifiedCampaign.objects.get(id=campaign_id)
+		create_full_ad_for_tiktok(campaign, campaign.organization.integrations.get(platform='TIKTOK'))
+		# Implementation for creating platform-specific campaigns
+		return Response({'message': 'Platform campaign created successfully'}, status=status.HTTP_201_CREATED)	
+	

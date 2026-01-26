@@ -1,5 +1,5 @@
 from django.utils import choices
-from main.models import BudgetType, UnifiedCampaign
+from main.models import BudgetType, UnifiedCampaign, AdIntegration
 from rest_framework import serializers
 import json
 from rest_framework.validators import UniqueValidator
@@ -91,6 +91,16 @@ class CreateAdSerializer(serializers.Serializer):
                 })
 
         return super().to_internal_value(data)
+    def validate_platforms(self, value):
+        allowed_platforms = ['META', 'GOOGLE', 'TIKTOK']
+        for platform in value:
+            if platform not in allowed_platforms:
+                raise serializers.ValidationError(f"Platform '{platform}' is not supported.")
+        organization = self.context['request'].user.organizationmember_set.first().organization
+        for platform in value:
+            if not AdIntegration.objects.filter(platform=platform, organization=organization).exists():
+                raise serializers.ValidationError(f"No Ad Integration found for platform '{platform}'. Please set up an ad account integration first.")
+        return value
 
 class AICopyRequestSerializer(serializers.Serializer):
     product = serializers.CharField(max_length=200)
