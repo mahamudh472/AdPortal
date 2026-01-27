@@ -39,6 +39,55 @@ def to_tiktok_datetime(dt):
 
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
+def get_tiktok_adgroup_config(objective):
+    # Standard settings for accounts WITHOUT a pixel
+    
+    if objective == "TRAFFIC":
+        return {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "CLICK",   # Must be CLICK for Traffic
+            "billing_event": "CPC",        # Must be CPC for CLICK
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        }
+
+    if objective == "AWARENESS":
+        return {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "REACH",   # Must be REACH for Awareness
+            "billing_event": "CPM",        # Must be CPM for REACH
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        }
+
+    if objective == "VIDEO_VIEW":
+        return {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "VIDEO_VIEW", # Must be VIDEO_VIEW
+            "billing_event": "CPM",           # Must be CPM for Video Views
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        }
+
+    if objective == "ENGAGEMENT":
+        # If campaign is 'COMMUNITY_INTERACTION', use this:
+        return {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "CLICK",  # Without pixel, optimize for clicks
+            "billing_event": "CPC",
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        }
+
+    # If it's anything else, fallback to Traffic settings to prevent crashes
+    return {
+        "promotion_type": "WEBSITE",
+        "optimization_goal": "CLICK",
+        "billing_event": "CPC",
+        "bid_type": "BID_TYPE_NO_BID",
+        "pacing": "PACING_MODE_SMOOTH",
+    }
+
 def create_platform_campaign_for_tiktok(campaign, integration, ADVERTISER_ID, ACCESS_TOKEN):
     print(type(campaign))
     platform_campaign = PlatformCampaign.objects.get(unified_campaign=campaign, integration=integration)
@@ -85,19 +134,17 @@ def create_ad_group_for_tiktok(campaign_id):
         "advertiser_id": ADVERTISER_ID,
         "campaign_id": campaign_id,
         "adgroup_name": adgroup.name,
-        "PLACEMENT_TYPE_NORMAL": "PLACEMENT_TYPE_NORMAL", # Only show on TikTok app
+        "placement_type": "PLACEMENT_TYPE_NORMAL",
         "placements": ["PLACEMENT_TIKTOK"],
-        "location_ids": ['6252001'],  # Sandbox usually supports 'US' or 'JP'
+        "location_ids": ['6252001'],
         "budget_mode": "BUDGET_MODE_DAY",
         "budget": 20.0,
         "schedule_type": "SCHEDULE_START_END",
-        "schedule_start_time": to_tiktok_datetime(adgroup.start_time), # Future date
+        "schedule_start_time": to_tiktok_datetime(adgroup.start_time),
         "schedule_end_time": to_tiktok_datetime(adgroup.end_time),
-        "billing_event": "CPC",
-        "bid_type": "", # Lowest Cost strategy
-        "optimization_goal": "CLICK",
-        "promotion_type": "WEBSITE", 
     }
+    config = get_tiktok_adgroup_config(platform_campaign.unified_campaign.objective)
+    payload.update(config)
     
     res = requests.post(url, headers=HEADERS, json=payload)
     data = res.json()
@@ -157,7 +204,7 @@ def create_tiktok_ad_flow():
         "advertiser_id": ADVERTISER_ID,
         "campaign_id": campaign_id,
         "adgroup_name": "Python AdGroup US",
-        "PLACEMENT_TYPE_NORMAL": "PLACEMENT_TYPE_NORMAL", # Only show on TikTok app
+        "placement_type": "PLACEMENT_TYPE_NORMAL", # Only show on TikTok app
         "placements": ["PLACEMENT_TIKTOK"],
         "location_ids": ['6252001'],  # Sandbox usually supports 'US' or 'JP'
         "budget_mode": "BUDGET_MODE_DAY",
