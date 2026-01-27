@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'accounts',
     'main',
     'finance',
+    'analysis',
 
     'rest_framework',
     'rest_framework_simplejwt',

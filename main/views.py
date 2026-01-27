@@ -81,9 +81,14 @@ class AnalyticsAPIView(generics.GenericAPIView):
 	def get(self, request, *args, **kwargs):
 		organization = Organization.objects.get(organizationmember__user=request.user)
 		campaigns = UnifiedCampaign.objects.filter(organization=organization)
-		access_token = organization.integrations.get(platform='TIKTOK').access_token
-		from .utils.tiktok_handler import get_analytics as tiktok_analytics
-		data = tiktok_analytics(ACCESS_TOKEN=access_token, ADVERTISER_ID=organization.integrations.get(platform='TIKTOK').ad_account_id)
+		integration = organization.integrations.filter(platform='TIKTOK').first()
+		access_token = integration.access_token
+		from .utils.tiktok_handler import get_detailed_analytics as tiktok_analytics
+		from django.utils import timezone
+		date = timezone.now().date().strftime("%Y-%m-%d")
+		data = tiktok_analytics(target_date=date)
+		from .utils.analytics import save_daily_analytics
+		save_daily_analytics(data, integration.ad_account_id, date)
 		analytics_data = {
 			'data': data
 		}

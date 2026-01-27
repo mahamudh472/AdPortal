@@ -3,7 +3,10 @@ from django.utils import timezone
 from datetime import datetime, timezone as dt_timezone
 from dotenv import load_dotenv
 load_dotenv()
-
+from django.conf import settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'AdPortal.settings')
+import django
+django.setup()
 from main.models import UnifiedCampaign, PlatformCampaign
 
 # --- CONFIGURATION (SANDBOX) ---
@@ -367,7 +370,175 @@ def get_analytics(ACCESS_TOKEN=None, ADVERTISER_ID=None):
         print(report)
     return reports
 
-def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_ID, target_date=None):
+def get_daily_campaign_analytics(ACCESS_TOKEN, ADVERTISER_ID, target_date=None):
+    """
+    Returns a dictionary of {campaign_name: metrics} for a specific day.
+    Excludes deleted/drafted campaigns.
+    """
+    BASE_URL = "https://sandbox-ads.tiktok.com/open_api/v1.3" # Change to business-api.tiktok.com for production
+    
+    if target_date is None:
+        target_date = datetime.now().strftime("%Y-%m-%d")
+
+    headers = {
+        "Access-Token": ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    # 1. Fetch Campaigns
+    # We fetch name and status to ensure we only include relevant ones
+    campaign_url = f"{BASE_URL}/campaign/get/"
+    camp_params = {
+        "advertiser_id": ADVERTISER_ID,
+        "page_size": 100
+    }
+
+    camp_res = requests.get(campaign_url, headers=headers, params=camp_params)
+    camp_data = camp_res.json()
+
+    if camp_data.get('code') != 0:
+        print(f"❌ Error fetching campaigns: {camp_data.get('message')}")
+        return {}
+
+    # 2. Filter Campaigns (Exclude DELETED/DRAFT)
+    # We check multiple status fields because Sandbox can be inconsistent
+    valid_campaigns = []
+    valid_ids = []
+
+    for c in camp_data.get('data', {}).get('list', []):
+        status = str(c.get('primary_status') or c.get('operation_status') or "").upper()
+        
+        # Exclude deleted or drafted. If status is None/Empty (like in your sandbox), 
+        # we assume it's a valid test campaign.
+        if status not in ["DELETE", "DELETED", "DRAFT", "CAMPAIGN_STATUS_DELETE"]:
+            valid_campaigns.append(c)
+            valid_ids.append(str(c['campaign_id']))
+
+    if not valid_ids:
+        return {}
+
+    # 3. Fetch Metrics for the specific date
+    report_url = f"{BASE_URL}/report/integrated/get/"
+    report_payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "report_type": "BASIC",
+        "data_level": "AUCTION_CAMPAIGN",
+        "dimensions": json.dumps(["campaign_id", "campaign_name"]),
+        "metrics": json.dumps(["spend", "impressions", "clicks", "cpc", "ctr"]),
+        "start_date": target_date,
+        "end_date": target_date,
+        "filtering": json.dumps({"campaign_ids": valid_ids}),
+        "page_size": 100
+    }
+
+    res = requests.get(report_url, headers=headers, params=report_payload)
+    report_data = res.json()
+    
+    # 4. Map Report Data to the Campaign List
+    # Integrated report only returns rows for campaigns that had activity.
+    # We want a result for EVERY valid campaign, even if metrics are 0.
+    
+    # Create a lookup for campaigns that actually have data
+    report_list = report_data.get('data', {}).get('list', [])
+    active_metrics_map = {item['dimensions']['campaign_id']: item['metrics'] for item in report_list}
+
+    final_results = {}
+    for camp in valid_campaigns:
+        c_id = str(camp['campaign_id'])
+        name = camp['campaign_name']
+        
+        if c_id in active_metrics_map:
+            final_results[name] = active_metrics_map[c_id]
+        else:
+            # Return zeroed matrix if no activity was recorded for that day
+            final_results[name] = {
+                "spend": "0.00",
+                "impressions": "0",
+                "clicks": "0",
+                "cpc": "0.00",
+                "ctr": "0.00"
+            }
+
+    return final_results
+
+def debug_and_get_analytics(ACCESS_TOKEN, ADVERTISER_ID, target_date=None):
+    if target_date is None:
+        target_date = datetime.now().strftime("%Y-%m-%d")
+
+    headers = {"Access-Token": ACCESS_TOKEN}
+
+    # 1. Fetch campaigns
+    campaign_url = f"{BASE_URL}/campaign/get/"
+    params = {"advertiser_id": ADVERTISER_ID}
+    
+    res = requests.get(campaign_url, headers=headers, params=params)
+    data = res.json()
+
+    if data.get('code') != 0:
+        return f"Error: {data.get('message')}"
+
+    all_campaigns = data.get('data', {}).get('list', [])
+    
+    print(f"--- Found {len(all_campaigns)} Total Campaigns ---")
+    
+    valid_ids = []
+    valid_campaign_info = []
+
+    for c in all_campaigns:
+        name = c.get('campaign_name')
+        status = c.get('primary_status')
+        c_id = str(c.get('campaign_id'))
+        
+        print(f"Campaign: {name} | Status: {status} | ID: {c_id}")
+
+        # INSTEAD OF FILTERING FOR 'ENABLE', 
+        # WE EXCLUDE 'DELETE' AND 'DRAFT'
+        if status not in ["DELETE", "DRAFT", "CAMPAIGN_STATUS_DELETE"]:
+            valid_ids.append(c_id)
+            valid_campaign_info.append(c)
+
+    if not valid_ids:
+        print("Result: No campaigns passed the filter.")
+        return {}
+
+    # 2. Fetch Report
+    report_url = f"{BASE_URL}/report/integrated/get/"
+    report_payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "report_type": "BASIC",
+        "data_level": "AUCTION_CAMPAIGN",
+        "dimensions": json.dumps(["campaign_id", "campaign_name"]),
+        "metrics": json.dumps(["spend", "impressions", "clicks", "cpc", "ctr"]),
+        "start_date": target_date,
+        "end_date": target_date,
+        "filtering": json.dumps({"campaign_ids": valid_ids})
+    }
+
+    report_res = requests.get(report_url, headers=headers, params=report_payload)
+    report_data = report_res.json()
+
+    # 3. Format Output
+    results = {}
+    report_list = report_data.get('data', {}).get('list', [])
+    
+    # Create a mapping of what we found in the report
+    report_map = {item['dimensions']['campaign_name']: item['metrics'] for item in report_list}
+
+    # Combine names with the report data
+    for c in valid_campaign_info:
+        name = c['campaign_name']
+        # If there is no spend/data for today, return zeroed metrics
+        results[name] = report_map.get(name, {
+            "spend": "0.00", 
+            "impressions": "0", 
+            "clicks": "0", 
+            "cpc": "0.00", 
+            "ctr": "0.00"
+        })
+
+    return results
+
+def get_detailed_analytics(ACCESS_TOKEN, ADVERTISER_ID, target_date=None):
     """
     Returns campaign metrics including ROAS and Device Breakdown.
     Format: { 
@@ -378,7 +549,8 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
         } 
     }
     """
-
+    BASE_URL = "https://sandbox-ads.tiktok.com/open_api/v1.3" # Change to business-api.tiktok.com for Production
+    
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -424,7 +596,7 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
                 "spend": 0.0, 
                 "impressions": 0, 
                 "clicks": 0, 
-                "ctr": "0.00", # This is the CTR
+                "click_rate": "0.00%", # This is the CTR
                 "cpc": 0.0, 
                 "roas": 0.0
             },
@@ -445,7 +617,7 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
             "spend": m.get("spend"),
             "impressions": m.get("impressions"),
             "clicks": m.get("clicks"),
-            "ctr": f"{m.get('ctr')}",
+            "click_rate": f"{m.get('ctr')}%",
             "cpc": m.get("cpc"),
             "roas": m.get("conversion_roas")
         }
@@ -459,7 +631,7 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
         # Recalculate Click Rate and CPC for accuracy based on totals
         if total["impressions"] > 0:
             ctr_val = (total["clicks"] / total["impressions"]) * 100
-            total["ctr"] = f"{ctr_val:.2f}"
+            total["click_rate"] = f"{ctr_val:.2f}%"
         
         if total["clicks"] > 0:
             total["cpc"] = round(total["spend"] / total["clicks"], 2)
@@ -473,5 +645,6 @@ if __name__ == '__main__':
     # create_tiktok_ad_flow()
     # get_campaigns()
     # get_single_campaign("7582640422065864711")
-    result = get_analytics(ACCESS_TOKEN, ADVERTISER_ID)
-    print(result)
+    result = get_detailed_analytics(ACCESS_TOKEN, ADVERTISER_ID)
+    from pprint import pprint
+    pprint(result)
