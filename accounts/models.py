@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseU
 from django.db import models
 import uuid
 from django.utils import timezone
+from main.models import Organization
 
 
 class UserManager(BaseUserManager):
@@ -79,4 +80,12 @@ class OTP(models.Model):
         """Check if OTP is still valid"""
         return not self.is_used and timezone.now() < self.expires_at
 
+class Notification(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, related_name="notifications", blank=True, null=True)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    read = models.BooleanField(default=False)
 
+    def __str__(self):
+        return f"{self.user.first_name}: {self.message}"

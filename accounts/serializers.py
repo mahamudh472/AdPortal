@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User
+from .models import User, Notification
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
@@ -58,4 +58,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise serializers.ValidationError("User account is not active.")
 
         return data
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+
+    class Meta:
+         model = Notification
+         fields = "__all__"
 

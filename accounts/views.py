@@ -9,17 +9,18 @@ from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.generics import RetrieveAPIView, GenericAPIView
+from rest_framework.generics import RetrieveAPIView, GenericAPIView, ListAPIView
 from accounts.serializers import (
     CustomTokenObtainPairSerializer, 
     ResetPasswordConfirmSerializer,
     RegisterSerializer,
     UserSerializer, 
     VerifyEmailSerializer,
-    ChangePasswordSerializer
+    ChangePasswordSerializer,
+    NotificationSerializer
 )
-
-from .models import User, OTP
+from rest_framework.pagination import PageNumberPagination
+from .models import User, OTP, Notification
 
 class LoginView(APIView):
     def post(self, request):
@@ -236,3 +237,18 @@ class LogoutView(GenericAPIView):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+class NotifcationListPagination(PageNumberPagination):
+    page_size = 10
+    max_page_size = 100
+    page_query_param = "p"
+    page_size_query_param = "page_size"
+
+class NotificationListAPIView(ListAPIView):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = NotifcationListPagination
+
+    def get_queryset(self):
+        notifications = Notification.objects.filter(user=self.request.user)
+        return notifications
+
