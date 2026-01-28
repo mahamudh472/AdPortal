@@ -1,3 +1,4 @@
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 
@@ -16,13 +17,14 @@ from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy
 from finance.models import Payment
 from .serializers import BillingHistorySerializer
+from .mixins import RequiredOrganizationIDMixin
 
 class CampaignPagination(PageNumberPagination):
 	page_size = 10
 	page_size_query_param = 'page_size'
 	max_page_size = 100
 
-class CampaignListAPIView(generics.ListAPIView):
+class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	serializer_class = CampaignSerializer
 	permission_classes = [IsRegularPlatformUser]
 	filter_backends = [SearchFilter, DjangoFilterBackend]
@@ -31,7 +33,10 @@ class CampaignListAPIView(generics.ListAPIView):
 	filterset_fields = ['status']
 
 	def get_queryset(self):
-		organization = Organization.objects.get(organizationmember__user=self.request.user)
+		org_id = self.get_org_id()
+		organization = Organization.objects.filter(id=org_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
 		queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
 		return queryset
 
