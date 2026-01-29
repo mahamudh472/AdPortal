@@ -197,3 +197,23 @@ SIMPLE_JWT = {
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 HTTP_STRIPE_SIGNATURE = os.getenv("HTTP_STRIPE_SIGNATURE")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "file": {
+            "level": "INFO",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": "logs/app.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,             # keep last 5 files
+        },
+    },
+    "loggers": {
+        "": {  # root logger
+            "handlers": ["file"],
+            "level": "INFO",
+        },
+    },
+}
