@@ -97,6 +97,15 @@ DATABASES = {
     }
 }
 
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'config': {
+            'hosts' : [(os.getenv('REDIS_HOST'), os.getenv('REDIS_PORT'))]
+        }
+    }
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
