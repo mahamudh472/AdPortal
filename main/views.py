@@ -111,3 +111,13 @@ class CreatePlatformCampaignAPIView(generics.GenericAPIView):
 		# Implementation for creating platform-specific campaigns
 		return Response({'message': 'Platform campaign created successfully'}, status=status.HTTP_201_CREATED)	
 	
+class TestTimezoneAPIView(generics.GenericAPIView):
+	permission_classes = [permissions.IsAuthenticated]
+	def get(self, request):
+		from django.utils import timezone
+		from django.http import JsonResponse
+		from .utils.time_handler import utc_to_user_time
+
+		current_time = timezone.now()
+		result = utc_to_user_time(current_time, request.user.timezone)
+		return Response({'current_time': result}, status=status.HTTP_200_OK)
