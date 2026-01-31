@@ -201,6 +201,14 @@ HTTP_STRIPE_SIGNATURE = os.getenv("HTTP_STRIPE_SIGNATURE")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name}:{lineno} {message}",
+            "style": "{",
+        },
+    },
+    
     "handlers": {
         "file": {
             "level": "INFO",
@@ -208,24 +216,21 @@ LOGGING = {
             "filename": "logs/app.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,             # keep last 5 files
+            "formatter": "verbose",
         },
         "error_file": {
             "level": "ERROR",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": "logs/error.log",
+            "filename": "logs/errors.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
-            "backupCount": 5,             # keep last 5 files
+            "backupCount": 5,
+            "formatter": "verbose",
         },
     },
     "loggers": {
         "": {  # root logger
-            "handlers": ["file"],
+            "handlers": ["file", "error_file"],
             "level": "INFO",
-        },
-        "django": {
-            "handlers": ["error_file"],
-            "level": "ERROR",
-            "propagate": False,
         },
     },
 }
