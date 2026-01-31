@@ -2,6 +2,9 @@ from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from snowflake import SnowflakeGenerator
+
+generator = SnowflakeGenerator(1)
 
 class Platform(models.TextChoices):
     META = 'META', 'Meta (Facebook/Instagram)'
@@ -35,9 +38,20 @@ class OrganizationRole(models.TextChoices):
     MEMBER = "MEMBER", "MEMBER"
 
 class Organization(models.Model):
+    snowflake_id = models.BigIntegerField(
+        unique=True,
+        null=True,
+        editable=False,
+        db_index=True
+    )
     name = models.CharField(max_length=255, blank=True, null=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_organizations")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.snowflake_id:
+            self.snowflake_id = next(generator)
+        super().save(*args, **kwargs)
 
 class OrganizationMember(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

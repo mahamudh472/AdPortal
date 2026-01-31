@@ -8,7 +8,7 @@ from requests import session
 from rest_framework.generics import ListAPIView, GenericAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
+from main.mixins import RequiredOrganizationIDMixin
 from accounts.permissions import IsRegularPlatformUser
 from .serializers import PlanSerializer, SubscriptionSerializer
 from main import serializers
@@ -25,7 +25,7 @@ class PlanListAPIView(ListAPIView):
 	serializer_class = PlanSerializer
 	queryset = Plan.objects.filter(is_active=True)
 
-class BuyPlanAPIView(GenericAPIView):
+class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request, *args, **kwargs):
@@ -40,7 +40,7 @@ class BuyPlanAPIView(GenericAPIView):
 
 		# TODO: Create checkout session
 		# Currently creating directly for testing.
-		organization = Organization.objects.get(organizationmember__user=request.user)
+		organization = self.get_org_id()
 		subscription = Subscription.objects.filter(plan=plan.first(), organization=organization)
 
 		if subscription.exists():
@@ -68,7 +68,7 @@ class BuyPlanAPIView(GenericAPIView):
 			}],
 			mode='subscription',
 			success_url='http://127.0.0.1:8000/success',
-			cancel_url='http://127.0.0.1:8000/cencel',
+			cancel_url='http://127.0.0.1:8000/cancel',
 			metadata={
 				'plan_id': str(plan.first().id),
 				'organization_id': str(organization.id),
@@ -79,11 +79,11 @@ class BuyPlanAPIView(GenericAPIView):
 
 
 
-class GetPlanAPIView(GenericAPIView):
+class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
 	def get(self, request, *args, **kwargs):
-		organization = Organization.objects.get(organizationmember__user=request.user)
+		organization = self.get_org_id()
 		subscription = Subscription.objects.filter(organization=organization, status='active').select_related('plan')
 		if not subscription.exists():
 			return Response({'error': "No active subscription found."}, status=status.HTTP_404_NOT_FOUND)
@@ -101,12 +101,12 @@ class GetPlanAPIView(GenericAPIView):
 			})
 
 
-class BillingHistoryAPIView(GenericAPIView):
+class BillingHistoryAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 
 	def get(self, request, *args, **kwargs):
 		user = request.user
-		organization = Organization.objects.get(organizationmember__user=user)
+		organization = self.get_org_id()
 		# Assuming BillingHistory model exists and has a foreign key to Organization
 		billing_history = Payment.objects.filter(organization=organization).order_by('-paid_at')
 
