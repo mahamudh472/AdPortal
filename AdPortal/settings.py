@@ -209,11 +209,23 @@ LOGGING = {
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,             # keep last 5 files
         },
+        "error_file": {
+            "level": "ERROR",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": "logs/error.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,             # keep last 5 files
+        },
     },
     "loggers": {
         "": {  # root logger
             "handlers": ["file"],
             "level": "INFO",
+        },
+        "django": {
+            "handlers": ["error_file"],
+            "level": "ERROR",
+            "propagate": False,
         },
     },
 }
