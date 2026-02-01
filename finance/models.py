@@ -35,6 +35,14 @@ class Plan(models.Model):
 
     def __str__(self):
         return f"{self.name} (${self.price}/{self.interval})"
+    
+    def get_campaign_limit(self):
+        if self.name == "starter":
+            return self.features.filter(key="feature_1").first().value.split()[0]
+        elif self.name == "growth":
+            return self.features.filter(key="feature_2").first().value.split()[0]
+        elif self.name == "scale":
+            return 'Unlimited'
 
 class PlanFeature(models.Model):
     plan = models.ForeignKey(

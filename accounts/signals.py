@@ -12,5 +12,6 @@ def user_creation_handler(sender, instance, created, **kwargs):
 		OrganizationMember.objects.create(
 			user=instance,
 			organization=organization,
-			role=OrganizationRole.OWNER
+			role=OrganizationRole.OWNER,
+			status='ACTIVE'
 		)

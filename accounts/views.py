@@ -22,10 +22,6 @@ from accounts.serializers import (
 from rest_framework.pagination import PageNumberPagination
 from .models import User, OTP, Notification
 
-class LoginView(APIView):
-    def post(self, request):
-        return Response({"message": "Login successful"}, status=status.HTTP_200_OK)
-
 class RegisterView(GenericAPIView):
     serializer_class = RegisterSerializer
 

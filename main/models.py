@@ -55,11 +55,11 @@ class Organization(models.Model):
 
 class OrganizationMember(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=20, choices=OrganizationRole.choices)
 
     invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name="sent_org_invites")
-
+    status = models.CharField(max_length=20, choices=[('PENDING', 'Pending'), ('ACTIVE', 'Active'), ('REJECTED', 'Rejected')], default='PENDING')
     class Meta:
         unique_together = ('user', 'organization')
 
