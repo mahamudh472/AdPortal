@@ -17,5 +17,7 @@ urlpatterns = [
     path('change-password/', views.ChangePasswordView.as_view(), name='change_password'),
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('profile/update/', views.UpdateProfileView.as_view(), name='profile_update'),
-    path('notifications/', views.NotificationListAPIView.as_view(), name='notifications')
+    path('notifications/', views.NotificationListAPIView.as_view(), name='notifications'),
+    path('notification-settings/', views.NotificationSettingsAPIView.as_view(), name='notification_settings'),
+    path('delete-account/', views.DeleteAccountView.as_view(), name='delete_account'),
 ]

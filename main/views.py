@@ -4,7 +4,7 @@ from rest_framework import generics, permissions, status
 
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
-    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer
+    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer
 )
 from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
 from main.utils.object_handlers import (
@@ -18,6 +18,20 @@ from .ai_services import generate_ad_copy
 from finance.models import Payment
 from .serializers import BillingHistorySerializer
 from .mixins import RequiredOrganizationIDMixin
+
+
+class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateAPIView):
+	serializer_class = OrganizationSerializer
+	permission_classes = [permissions.IsAuthenticated]
+
+	def get_object(self):
+		user = self.request.user
+		snoflake_id = self.get_org_id()
+		organization = Organization.objects.filter(snowflake_id=snoflake_id, memberships__user=user).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		return organization
+
 
 class CampaignPagination(PageNumberPagination):
 	page_size = 10

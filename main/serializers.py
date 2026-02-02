@@ -1,5 +1,5 @@
 from django.utils import choices
-from main.models import BudgetType, UnifiedCampaign, AdIntegration
+from main.models import BudgetType, Organization, UnifiedCampaign, AdIntegration
 from rest_framework import serializers
 import json
 from rest_framework.validators import UniqueValidator
@@ -120,3 +120,7 @@ class BillingHistorySerializer(serializers.ModelSerializer):
         # TODO: Replace with actual logic to generate invoice URL
         return f"https://billing.example.com/invoices/{obj.id}"
 
+class OrganizationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ['snowflake_id', 'name', 'website', 'industry', 'company_size']

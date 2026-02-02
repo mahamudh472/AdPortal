@@ -11,16 +11,18 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import RetrieveAPIView, GenericAPIView, ListAPIView
 from accounts.serializers import (
-    CustomTokenObtainPairSerializer, 
+    CustomTokenObtainPairSerializer,
+    NotificationSettingsSerializer, 
     ResetPasswordConfirmSerializer,
     RegisterSerializer,
+    SimpleUserSerializer,
     UserSerializer, 
     VerifyEmailSerializer,
     ChangePasswordSerializer,
     NotificationSerializer
 )
 from rest_framework.pagination import PageNumberPagination
-from .models import User, OTP, Notification
+from .models import NotificationSetting, User, OTP, Notification
 
 class RegisterView(GenericAPIView):
     serializer_class = RegisterSerializer
@@ -131,7 +133,7 @@ class PasswordResetConfirmView(GenericAPIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ProfileView(GenericAPIView):
-    serializer_class = UserSerializer
+    serializer_class = SimpleUserSerializer
     permission_classes = [IsAuthenticated]
     def get(self, request):
         user = request.user
@@ -248,3 +250,29 @@ class NotificationListAPIView(ListAPIView):
         notifications = Notification.objects.filter(user=self.request.user)
         return notifications
 
+class NotificationSettingsAPIView(GenericAPIView):
+    serializer_class = NotificationSettingsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        settings, created = NotificationSetting.objects.get_or_create(user=user)
+        serializer = self.serializer_class(settings)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        user = request.user
+        settings, created = NotificationSetting.objects.get_or_create(user=user)
+        serializer = self.serializer_class(settings, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DeleteAccountView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        user = request.user
+        user.delete()
+        return Response({"message": "Account deleted successfully"}, status=status.HTTP_200_OK)

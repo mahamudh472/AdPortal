@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Notification
+from .models import NotificationSetting, User, Notification
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from main.models import Organization
 from finance.models import Subscription
@@ -45,6 +45,7 @@ class ChangePasswordSerializer(serializers.Serializer):
     
 
 class UserSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(read_only=True)
     class Meta:
         model = User
         exclude = ['password', 'groups', 'user_permissions']
@@ -52,7 +53,7 @@ class UserSerializer(serializers.ModelSerializer):
 class SimpleUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email']
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone_number',]
     
 
 
@@ -94,3 +95,8 @@ class NotificationSerializer(serializers.ModelSerializer):
          model = Notification
          fields = "__all__"
 
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+
+    class Meta:
+         model = NotificationSetting
+         fields = ['campaign_performance', 'budget_alerts', 'weekly_performance_summary', 'ai_recommendations', 'team_activity']

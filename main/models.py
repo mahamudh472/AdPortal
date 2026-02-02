@@ -35,9 +35,25 @@ class BudgetType(models.TextChoices):
 class OrganizationRole(models.TextChoices):
     OWNER = "OWNER", "Owner"
     ADMIN = "ADMIN", "Admin"
-    MEMBER = "MEMBER", "MEMBER"
+    MEMBER = "MEMBER", "Member"
 
 class Organization(models.Model):
+    INDUSTRY_CHOICES = [
+        ('ecommerce', 'E-Commerce'),
+        ('saas', 'SaaS'),
+        ('agency', 'Agency'),
+        ('education', 'Education'),
+        ('finance', 'Finance'),
+        ('other', 'Other'),
+    ]
+    COMPANY_SIZE_CHOICES = [
+        ('1-10', '1-10'),
+        ('11-50', '11-50'),
+        ('51-200', '51-200'),
+        ('201-500', '201-500'),
+        ('500+', '500+'),
+
+    ]
     snowflake_id = models.BigIntegerField(
         unique=True,
         null=True,
@@ -45,6 +61,9 @@ class Organization(models.Model):
         db_index=True
     )
     name = models.CharField(max_length=255, blank=True, null=True)
+    website = models.URLField(blank=True, null=True)
+    industry = models.CharField(max_length=100, blank=True, null=True, choices=INDUSTRY_CHOICES)
+    company_size = models.CharField(max_length=100, blank=True, null=True, choices=COMPANY_SIZE_CHOICES)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_organizations")
     created_at = models.DateTimeField(auto_now_add=True)
 
