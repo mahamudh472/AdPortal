@@ -20,14 +20,14 @@ from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/accounts/', include('accounts.urls')),
-    path('api/admin/', include('admin_dashboard.urls')),
-    path('api/finance/', include('finance.urls')),
-    path('api/main/', include('main.urls')),
-    path('api/auth/meta/connect/', MetaConnect.as_view()),
-    path('api/auth/meta/callback/', MetaCallback.as_view()),
-    path('api/auth/tiktok/connect/', TikTokConnect.as_view()),
-    path('api/auth/tiktok/callback/', TikTokCallback.as_view()),
+    path('api/v1/accounts/', include('accounts.urls')),
+    path('api/v1/admin/', include('admin_dashboard.urls')),
+    path('api/v1/finance/', include('finance.urls')),
+    path('api/v1/main/', include('main.urls')),
+    path('api/v1/auth/meta/connect/', MetaConnect.as_view()),
+    path('api/v1/auth/meta/callback/', MetaCallback.as_view()),
+    path('api/v1/auth/tiktok/connect/', TikTokConnect.as_view()),
+    path('api/v1/auth/tiktok/callback/', TikTokCallback.as_view()),
 
     path('silk/', include('silk.urls', namespace='silk')),
 

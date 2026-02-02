@@ -40,12 +40,18 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
 		# TODO: Create checkout session
 		# Currently creating directly for testing.
-		organization = self.get_org_id()
-		subscription = Subscription.objects.filter(plan=plan.first(), organization=organization)
+		organization_snowflake_id = self.get_org_id()
+		subscription = Subscription.objects.filter(
+			plan=plan.first(), 
+			organization__snowflake_id=organization_snowflake_id,
+			status='active'
+
+		)
 
 		if subscription.exists():
 			return Response({"message": "Subscription already exists"}, status=status.HTTP_200_OK)
 		
+		organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
 		subscription = Subscription.objects.create(
 			organization=organization,
 			plan=plan.first(),
@@ -71,7 +77,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 			cancel_url='http://127.0.0.1:8000/cancel',
 			metadata={
 				'plan_id': str(plan.first().id),
-				'organization_id': str(organization.id),
+				'organization_id': str(organization_snowflake_id),
 			}
 		)
 		
@@ -83,7 +89,8 @@ class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
 	def get(self, request, *args, **kwargs):
-		organization = self.get_org_id()
+		organization_snowflake_id = self.get_org_id()
+		organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
 		subscription = Subscription.objects.filter(organization=organization, status='active').select_related('plan')
 		if not subscription.exists():
 			return Response({'error': "No active subscription found."}, status=status.HTTP_404_NOT_FOUND)
@@ -94,9 +101,9 @@ class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 		campaign_limit = subscription.plan.features.filter(key="feature_1").first().value.split()[0]
 		campaign_used = subscription.usage_records.filter(feature_key="feature_1").aggregate(total_used=Sum('used'))['total_used'] or 0
 
-		return Response({
+		return Response({	
 				'plan_name': plan_name,
-				'campaign_limit': int(campaign_limit),
+				'campaign_limit': subscription.plan.get_campaign_limit(),
 				'campaign_used': campaign_used
 			})
 
@@ -106,7 +113,8 @@ class BillingHistoryAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
 	def get(self, request, *args, **kwargs):
 		user = request.user
-		organization = self.get_org_id()
+		organization_snowflake_id = self.get_org_id()
+		organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
 		# Assuming BillingHistory model exists and has a foreign key to Organization
 		billing_history = Payment.objects.filter(organization=organization).order_by('-paid_at')
 

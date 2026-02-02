@@ -33,8 +33,8 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	filterset_fields = ['status']
 
 	def get_queryset(self):
-		org_id = self.get_org_id()
-		organization = Organization.objects.filter(id=org_id).first()
+		org_snowflake_id = self.get_org_id()
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
 		if not organization:
 			raise ValidationError({'org_id': 'Invalid organization id'})
 		queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
@@ -80,11 +80,12 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 		
 		return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
 
-class AnalyticsAPIView(generics.GenericAPIView):
+class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 
 	def get(self, request, *args, **kwargs):
-		organization = Organization.objects.get(organizationmember__user=request.user)
+		snowflake_id = self.get_org_id()
+		organization = Organization.objects.get(snowflake_id=snowflake_id, memberships__user=request.user)
 		campaigns = UnifiedCampaign.objects.filter(organization=organization)
 		integration = organization.integrations.filter(platform='TIKTOK').first()
 		access_token = integration.access_token
