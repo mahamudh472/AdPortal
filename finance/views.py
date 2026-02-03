@@ -38,7 +38,6 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 		if not plan.exists():
 			return Response({'error': f"Plan not found with id {plan_id}"}, status=status.HTTP_400_BAD_REQUEST)
 
-		# TODO: Create checkout session
 		# Currently creating directly for testing.
 		organization_snowflake_id = self.get_org_id()
 		subscription = Subscription.objects.filter(
