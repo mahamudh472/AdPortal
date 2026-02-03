@@ -1,5 +1,6 @@
 from django.utils import choices
-from main.models import BudgetType, Organization, UnifiedCampaign, AdIntegration
+from accounts.serializers import SimpleUserSerializer
+from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, AdIntegration
 from rest_framework import serializers
 import json
 from rest_framework.validators import UniqueValidator
@@ -124,3 +125,10 @@ class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
         fields = ['snowflake_id', 'name', 'website', 'industry', 'company_size']
+
+class TeamMemberSerializer(serializers.ModelSerializer):
+    user = SimpleUserSerializer(read_only=True)
+    status = serializers.ChoiceField(choices=[('PENDING', 'Pending'), ('ACTIVE', 'Active'), ('REJECTED', 'Rejected')], default='PENDING', read_only=True)
+    class Meta:
+        model = OrganizationMember
+        fields = ['id', 'user', 'role', 'status']

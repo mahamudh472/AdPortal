@@ -1,10 +1,10 @@
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
-
+from django.db import models
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
-    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer
+    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberSerializer
 )
 from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
 from main.utils.object_handlers import (
@@ -136,3 +136,49 @@ class TestTimezoneAPIView(generics.GenericAPIView):
 		current_time = timezone.now()
 		result = utc_to_user_time(current_time, request.user.timezone)
 		return Response({'current_time': result}, status=status.HTTP_200_OK)
+
+class TeamAPIView(generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser]
+	serializer_class = TeamMemberSerializer
+
+	def get(self, request, *args, **kwargs):
+		org_snowflake_id = request.query_params.get('org_id')
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		
+		data = OrganizationMember.objects.filter(organization=organization).aggregate(
+			total_members=models.Count('id'),
+			active_members=models.Count('id', filter=models.Q(user__is_active=True)),
+			inactive_members=models.Count('id', filter=models.Q(user__is_active=False)),
+			pending_invitations=models.Count('id', filter=models.Q(status='PENDING'))
+		)
+
+		return Response(data, status=status.HTTP_200_OK)
+
+
+class TeamMemberListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
+	serializer_class = TeamMemberSerializer
+	permission_classes = [IsRegularPlatformUser]
+
+	def get_queryset(self):
+		org_snowflake_id = self.get_org_id()
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		queryset = OrganizationMember.objects.filter(organization=organization).select_related('user')
+		return queryset
+
+class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
+	serializer_class = TeamMemberSerializer
+	permission_classes = [IsRegularPlatformUser]
+	lookup_field = 'id'
+
+	def get_queryset(self):
+		org_snowflake_id = self.request.query_params.get('org_id')
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		# TODO: Ensure authority to update/delete team members
+		queryset = OrganizationMember.objects.filter(organization=organization).select_related('user')
+		return queryset
