@@ -11,7 +11,6 @@ urlpatterns = [
 	path('generate-ai-copy/', views.AICopyGeneratorAPIView.as_view()),
 	path('analytics/', views.AnalyticsAPIView.as_view()),
 	path('create-platform-campaign/', views.CreatePlatformCampaignAPIView.as_view()),
-	path('test-timezone/', views.TestTimezoneAPIView.as_view()),
     path('team/', views.TeamAPIView.as_view()),
     path('team-members/', views.TeamMemberListAPIView.as_view()),
     path('team-member/<str:id>/', views.UpdateDeleteTeamMemberAPIView.as_view()),

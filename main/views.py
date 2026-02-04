@@ -1,12 +1,12 @@
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
-from rest_framework import generics, permissions, status
+from rest_framework import generics, status
 from django.db import models
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
     CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberSerializer
 )
-from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMember
+from .models import UnifiedCampaign, Organization, OrganizationMember
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
@@ -15,10 +15,9 @@ from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy
-from finance.models import Payment
-from .serializers import BillingHistorySerializer
 from .mixins import RequiredOrganizationIDMixin
-from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from accounts.permissions import IsRegularPlatformUser
 
 
 
@@ -35,7 +34,7 @@ from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiPara
 	)
 class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateAPIView):
 	serializer_class = OrganizationSerializer
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def get_object(self):
 		user = self.request.user
@@ -205,16 +204,6 @@ class CreatePlatformCampaignAPIView(generics.GenericAPIView):
 		)
 	]
 )
-class TestTimezoneAPIView(generics.GenericAPIView):
-	permission_classes = [permissions.IsAuthenticated]
-	def get(self, request):
-		from django.utils import timezone
-		from django.http import JsonResponse
-		from .utils.time_handler import utc_to_user_time
-
-		current_time = timezone.now()
-		result = utc_to_user_time(current_time, request.user.timezone)
-		return Response({'current_time': result}, status=status.HTTP_200_OK)
 
 @extend_schema(
 	parameters=[

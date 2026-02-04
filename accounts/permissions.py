@@ -1,5 +1,4 @@
 from rest_framework.permissions import BasePermission
-from rest_framework.permissions import IsAuthenticated
 from main.models import OrganizationMember, Organization
 
 class IsRegularPlatformUser(BasePermission):

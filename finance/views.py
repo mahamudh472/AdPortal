@@ -1,24 +1,17 @@
-from datetime import timedelta
-from typing import Generator
 from django.db.models import Sum
-from django.shortcuts import redirect
-from django.utils import timezone
-from openai import organization
-from requests import session
-from rest_framework.generics import ListAPIView, GenericAPIView, RetrieveAPIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListAPIView, GenericAPIView
 from rest_framework.response import Response
 from main.mixins import RequiredOrganizationIDMixin
 from accounts.permissions import IsRegularPlatformUser
-from .serializers import PlanSerializer, SubscriptionSerializer
+from .serializers import PlanSerializer
 from main import serializers
 from .models import Payment, Plan, Subscription
-from rest_framework.exceptions import ValidationError
 from rest_framework import status
 from main.models import Organization
 import stripe
 from django.conf import settings
-from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
@@ -27,7 +20,7 @@ class PlanListAPIView(ListAPIView):
 	queryset = Plan.objects.filter(is_active=True)
 
 class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	@extend_schema(
         parameters=[
@@ -97,7 +90,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
 
 class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	@extend_schema(
         parameters=[

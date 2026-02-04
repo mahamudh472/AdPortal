@@ -1,15 +1,13 @@
 import random
 from django.conf import settings
-from django.shortcuts import render
 from django.core.mail import send_mail
 from django.utils import timezone
-from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, serializers
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.generics import RetrieveAPIView, GenericAPIView, ListAPIView
+from rest_framework.generics import GenericAPIView, ListAPIView
+from accounts.permissions import IsRegularPlatformUser
 from accounts.serializers import (
     CustomTokenObtainPairSerializer,
     NotificationSettingsSerializer, 
@@ -134,7 +132,7 @@ class PasswordResetConfirmView(GenericAPIView):
 
 class ProfileView(GenericAPIView):
     serializer_class = SimpleUserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
     def get(self, request):
         user = request.user
         serializer = self.serializer_class(user)
@@ -143,7 +141,7 @@ class ProfileView(GenericAPIView):
 
 class UpdateProfileView(GenericAPIView):
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
 
     def patch(self, request):
         user = request.user
@@ -193,7 +191,7 @@ class SendOTPView(GenericAPIView):
 
 class ChangePasswordView(GenericAPIView):
     serializer_class = ChangePasswordSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -212,7 +210,7 @@ class ChangePasswordView(GenericAPIView):
 
 
 class LogoutView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
     
     def post(self, request):
         try:
@@ -243,7 +241,7 @@ class NotifcationListPagination(PageNumberPagination):
 
 class NotificationListAPIView(ListAPIView):
     serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
     pagination_class = NotifcationListPagination
 
     def get_queryset(self):
@@ -252,8 +250,7 @@ class NotificationListAPIView(ListAPIView):
 
 class NotificationSettingsAPIView(GenericAPIView):
     serializer_class = NotificationSettingsSerializer
-    permission_classes = [IsAuthenticated]
-
+    permission_classes = [IsRegularPlatformUser]
     def get(self, request):
         user = request.user
         settings, created = NotificationSetting.objects.get_or_create(user=user)
@@ -270,7 +267,7 @@ class NotificationSettingsAPIView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DeleteAccountView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsRegularPlatformUser]
 
     def delete(self, request):
         user = request.user

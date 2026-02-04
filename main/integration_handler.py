@@ -1,7 +1,5 @@
 from datetime import timedelta
-from os import access, stat
-from requests.exceptions import RetryError
-from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import IsRegularPlatformUser
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from urllib.parse import urlencode
@@ -43,7 +41,7 @@ def fetch_meta_ads_account(user):
 	return None
 
 class MetaConnect(APIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def get(self, request, *args, **kwargs):
 		user = request.user
@@ -102,7 +100,7 @@ class MetaCallback(APIView):
 		return Response({"Successful"})
 
 class TikTokConnect(APIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def get(self, request, *args, **kwargs):
 		params = {
@@ -167,7 +165,7 @@ class TikTokCallback(APIView):
 
 
 class AdProfileListView(APIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def get(self, request, *args, **kwargs):
 		user = request.user
@@ -181,7 +179,7 @@ class AdProfileListView(APIView):
 		return Response(profiles)
 
 class SelectAdProfileView(APIView):
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsRegularPlatformUser]
 
 	def post(self, request, *args, **kwargs):
 		platform = request.data.get('platform', None)
