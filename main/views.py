@@ -10,7 +10,7 @@ from .models import UnifiedCampaign, UnifiedStatus, Organization, OrganizationMe
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
-from accounts.permissions import IsRegularPlatformUser
+from accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
@@ -171,7 +171,7 @@ class TeamMemberListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 
 class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
 	serializer_class = TeamMemberSerializer
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 	lookup_field = 'id'
 
 	def get_queryset(self):
