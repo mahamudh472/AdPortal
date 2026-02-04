@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -30,5 +31,7 @@ urlpatterns = [
     path('api/v1/auth/tiktok/callback/', TikTokCallback.as_view()),
 
     path('silk/', include('silk.urls', namespace='silk')),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 
 ]

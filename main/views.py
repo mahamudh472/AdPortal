@@ -18,8 +18,21 @@ from .ai_services import generate_ad_copy
 from finance.models import Payment
 from .serializers import BillingHistorySerializer
 from .mixins import RequiredOrganizationIDMixin
+from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter, OpenApiTypes
 
 
+
+@extend_schema(
+		parameters=[
+			OpenApiParameter(
+				name="org_id",
+				type=OpenApiTypes.STR,
+				location=OpenApiParameter.QUERY,
+				required=True,
+				description="Organization Snowflake ID"
+			)
+		]
+	)
 class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateAPIView):
 	serializer_class = OrganizationSerializer
 	permission_classes = [permissions.IsAuthenticated]
@@ -38,6 +51,17 @@ class CampaignPagination(PageNumberPagination):
 	page_size_query_param = 'page_size'
 	max_page_size = 100
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	serializer_class = CampaignSerializer
 	permission_classes = [IsRegularPlatformUser]
@@ -54,6 +78,17 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 		queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
 		return queryset
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class CreateAdAPIView(generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 	
@@ -75,6 +110,17 @@ class CreateAdAPIView(generics.GenericAPIView):
 			return Response({'error': 'Error creating Ad'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class AICopyGeneratorAPIView(generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 	serializer_class = AICopyRequestSerializer
@@ -94,6 +140,17 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 		
 		return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 
@@ -115,6 +172,17 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 		
 		return Response(analytics_data, status=status.HTTP_200_OK)
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class CreatePlatformCampaignAPIView(generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 
@@ -125,7 +193,18 @@ class CreatePlatformCampaignAPIView(generics.GenericAPIView):
 		create_full_ad_for_tiktok(campaign, campaign.organization.integrations.get(platform='TIKTOK'))
 		# Implementation for creating platform-specific campaigns
 		return Response({'message': 'Platform campaign created successfully'}, status=status.HTTP_201_CREATED)	
-	
+
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class TestTimezoneAPIView(generics.GenericAPIView):
 	permission_classes = [permissions.IsAuthenticated]
 	def get(self, request):
@@ -137,6 +216,17 @@ class TestTimezoneAPIView(generics.GenericAPIView):
 		result = utc_to_user_time(current_time, request.user.timezone)
 		return Response({'current_time': result}, status=status.HTTP_200_OK)
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class TeamAPIView(generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser]
 	serializer_class = TeamMemberSerializer
@@ -156,7 +246,17 @@ class TeamAPIView(generics.GenericAPIView):
 
 		return Response(data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class TeamMemberListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	serializer_class = TeamMemberSerializer
 	permission_classes = [IsRegularPlatformUser]
@@ -169,6 +269,17 @@ class TeamMemberListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 		queryset = OrganizationMember.objects.filter(organization=organization).select_related('user')
 		return queryset
 
+@extend_schema(
+	parameters=[
+		OpenApiParameter(
+			name="org_id",
+			type=OpenApiTypes.STR,
+			location=OpenApiParameter.QUERY,
+			required=True,
+			description="Organization Snowflake ID"
+		)
+	]
+)
 class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
 	serializer_class = TeamMemberSerializer
 	permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]

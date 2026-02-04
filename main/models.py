@@ -54,11 +54,12 @@ class Organization(models.Model):
         ('500+', '500+'),
 
     ]
-    snowflake_id = models.BigIntegerField(
+    snowflake_id = models.CharField(
         unique=True,
         null=True,
         editable=False,
-        db_index=True
+        db_index=True,
+        max_length=20
     )
     name = models.CharField(max_length=255, blank=True, null=True)
     website = models.URLField(blank=True, null=True)

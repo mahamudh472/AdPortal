@@ -18,6 +18,7 @@ from rest_framework import status
 from main.models import Organization
 import stripe
 from django.conf import settings
+from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter, OpenApiTypes
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
@@ -28,6 +29,17 @@ class PlanListAPIView(ListAPIView):
 class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
+	@extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="org_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Organization Snowflake ID"
+            )
+        ]
+    )
 	def post(self, request, *args, **kwargs):
 		plan_id = request.data.get('plan_id', None)
 
@@ -87,6 +99,17 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 	permission_classes = [IsAuthenticated]
 
+	@extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="org_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Organization Snowflake ID"
+            )
+        ]
+    )
 	def get(self, request, *args, **kwargs):
 		organization_snowflake_id = self.get_org_id()
 		organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
