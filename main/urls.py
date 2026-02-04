@@ -14,4 +14,5 @@ urlpatterns = [
     path('team/', views.TeamAPIView.as_view()),
     path('team-members/', views.TeamMemberListAPIView.as_view()),
     path('team-member/<str:id>/', views.UpdateDeleteTeamMemberAPIView.as_view()),
+	path('invite-team-member/', views.TeamInvitationAPIView.as_view()),
 ]

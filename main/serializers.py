@@ -132,3 +132,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMember
         fields = ['id', 'user', 'role', 'status']
+
+class TeamMemberInviteSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=[('ADMIN', 'Admin'), ('MEMBER', 'Member')])

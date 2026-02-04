@@ -2,11 +2,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework import generics, status
 from django.db import models
+from accounts.models import User
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
-    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberSerializer
+    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer
 )
-from .models import UnifiedCampaign, Organization, OrganizationMember
+from .models import UnifiedCampaign, Organization, OrganizationMember, TeamInvitation
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
@@ -17,6 +18,8 @@ from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy
 from .mixins import RequiredOrganizationIDMixin
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from django.core.mail import send_mail
+from django.conf import settings
 
 
 
@@ -296,3 +299,45 @@ class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
 		if instance.role == 'OWNER':
 			return Response({'error': 'Cannot delete the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
 		return super().destroy(request, *args, **kwargs)
+
+class TeamInvitationAPIView(generics.GenericAPIView):
+	serializer_class = TeamMemberInviteSerializer
+	permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+
+	def post(self, request, *args, **kwargs):
+		serializer = self.get_serializer(data=request.data)
+		if not serializer.is_valid():
+			return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+		data = serializer.validated_data
+		org_snowflake_id = request.query_params.get('org_id')
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		
+		email = data['email']
+		role = data['role']
+
+		user = User.objects.filter(email=email).first()
+		if user:
+			if OrganizationMember.objects.filter(user=user, organization=organization).exists():
+				return Response({'error': 'User is already a member of the organization.'}, status=status.HTTP_400_BAD_REQUEST)
+			if user.is_staff or user.is_superuser:
+				return Response({'error': 'Cannot invite admin or superuser as organization member.'}, status=status.HTTP_400_BAD_REQUEST)
+		invitation = TeamInvitation.objects.create(
+			email=email,
+			role=role,
+			organization=organization,
+			invited_by=request.user
+		)
+		invite_link = f"{settings.FRONTEND_URL}/accept-invite/{invitation.token}/"
+		send_mail(
+			subject=f"Invitation to join {organization.name} on AdPortal",
+			message=f"You have been invited to join the organization {organization.name} as a {role}. Please click the following link to accept the invitation: {invite_link}",
+			from_email=settings.DEFAULT_FROM_EMAIL,
+			recipient_list=[email],
+			fail_silently=False,
+		)
+		return Response({'message': 'Invitation sent successfully'}, status=status.HTTP_200_OK)
+
+
+		
