@@ -58,5 +58,5 @@ class IsAdminOrOwnerOfOrganization(BasePermission):
         return OrganizationMember.objects.filter(
             user=user,
             organization=organization,
-            role__in=['admin', 'owner']
+            role__in=['ADMIN', 'OWNER']
         ).exists()

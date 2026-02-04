@@ -2,7 +2,7 @@ from django.db.models import Sum
 from rest_framework.generics import ListAPIView, GenericAPIView
 from rest_framework.response import Response
 from main.mixins import RequiredOrganizationIDMixin
-from accounts.permissions import IsRegularPlatformUser
+from accounts.permissions import IsOrganizationMember, IsRegularPlatformUser, IsAdminOrOwnerOfOrganization
 from .serializers import PlanSerializer
 from main import serializers
 from .models import Payment, Plan, Subscription
@@ -20,7 +20,7 @@ class PlanListAPIView(ListAPIView):
 	queryset = Plan.objects.filter(is_active=True)
 
 class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
 	@extend_schema(
         parameters=[
@@ -90,7 +90,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
 
 class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
 	@extend_schema(
         parameters=[
@@ -124,7 +124,7 @@ class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
 
 class BillingHistoryAPIView(RequiredOrganizationIDMixin, GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
 	def get(self, request, *args, **kwargs):
 		user = request.user

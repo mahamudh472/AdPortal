@@ -10,14 +10,13 @@ from .models import UnifiedCampaign, Organization, OrganizationMember
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
-from accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser
+from accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy
 from .mixins import RequiredOrganizationIDMixin
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
-from accounts.permissions import IsRegularPlatformUser
 
 
 
@@ -34,7 +33,7 @@ from accounts.permissions import IsRegularPlatformUser
 	)
 class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateAPIView):
 	serializer_class = OrganizationSerializer
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
 	def get_object(self):
 		user = self.request.user
@@ -63,7 +62,7 @@ class CampaignPagination(PageNumberPagination):
 )
 class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	serializer_class = CampaignSerializer
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	filter_backends = [SearchFilter, DjangoFilterBackend]
 	pagination_class = CampaignPagination
 	search_fields = ['name', 'objective']
@@ -89,7 +88,7 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	]
 )
 class CreateAdAPIView(generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	
 	def post(self, request, *args, **kwargs):
 		serializer = CreateAdSerializer(data=request.data, context={'request': request})
@@ -121,7 +120,7 @@ class CreateAdAPIView(generics.GenericAPIView):
 	]
 )
 class AICopyGeneratorAPIView(generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	serializer_class = AICopyRequestSerializer
 
 	def post(self, request, *args, **kwargs):
@@ -151,13 +150,15 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 	]
 )
 class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
 	def get(self, request, *args, **kwargs):
 		snowflake_id = self.get_org_id()
 		organization = Organization.objects.get(snowflake_id=snowflake_id, memberships__user=request.user)
 		campaigns = UnifiedCampaign.objects.filter(organization=organization)
 		integration = organization.integrations.filter(platform='TIKTOK').first()
+		if not integration:
+			return Response({'error': 'No TikTok integration found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
 		access_token = integration.access_token
 		from .utils.tiktok_handler import get_detailed_analytics as tiktok_analytics
 		from django.utils import timezone
@@ -182,8 +183,8 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 		)
 	]
 )
-class CreatePlatformCampaignAPIView(generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+class CreatePlatformCampaignAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
 	def post(self, request, *args, **kwargs):
 		from .utils.tiktok_handler import create_platform_campaign_for_tiktok
@@ -217,7 +218,7 @@ class CreatePlatformCampaignAPIView(generics.GenericAPIView):
 	]
 )
 class TeamAPIView(generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	serializer_class = TeamMemberSerializer
 
 	def get(self, request, *args, **kwargs):
@@ -248,7 +249,7 @@ class TeamAPIView(generics.GenericAPIView):
 )
 class TeamMemberListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 	serializer_class = TeamMemberSerializer
-	permission_classes = [IsRegularPlatformUser]
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
 	def get_queryset(self):
 		org_snowflake_id = self.get_org_id()
@@ -282,3 +283,16 @@ class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
 		# TODO: Ensure authority to update/delete team members
 		queryset = OrganizationMember.objects.filter(organization=organization).select_related('user')
 		return queryset
+	
+	# override update and delete for ownership sothat admin can't make owner or delete owner
+	def update(self, request, *args, **kwargs):
+		instance = self.get_object()
+		if instance.role == 'OWNER':
+			return Response({'error': 'Cannot modify the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
+		return super().update(request, *args, **kwargs)
+
+	def destroy(self, request, *args, **kwargs):
+		instance = self.get_object()
+		if instance.role == 'OWNER':
+			return Response({'error': 'Cannot delete the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
+		return super().destroy(request, *args, **kwargs)
