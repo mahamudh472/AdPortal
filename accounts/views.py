@@ -27,10 +27,13 @@ class RegisterView(GenericAPIView):
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
+        user = User.objects.filter(email=request.data.get('email'), is_active=False)
+        if user.exists():
+            user.delete()
         if serializer.is_valid():
             user = serializer.save(is_active=False)
 
-            otp = str(random.randint(1000, 9999))
+            otp = str(random.randint(100000, 999999))
             OTP.objects.create(
                 user=user,
                 code=otp,
