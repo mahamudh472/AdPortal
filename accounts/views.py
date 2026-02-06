@@ -276,3 +276,24 @@ class DeleteAccountView(GenericAPIView):
         user = request.user
         user.delete()
         return Response({"message": "Account deleted successfully"}, status=status.HTTP_200_OK)
+
+class CheckOTPView(GenericAPIView):
+    def post(self, request):
+        email = request.data.get('email')
+        input_otp = request.data.get('otp')
+
+        if not email or not input_otp:
+            return Response({"error": "Email and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if OTP.objects.filter(user__email=email, code=input_otp).exists():
+            otp_record = OTP.objects.get(user__email=email, code=input_otp)
+            if otp_record.is_valid():
+                return Response({"message": "OTP is valid"}, status=status.HTTP_200_OK)
+            else:
+                return Response({"error": "OTP is expired or already used"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
