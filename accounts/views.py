@@ -167,7 +167,7 @@ class SendOTPView(GenericAPIView):
         if not user:
             return Response({"error": "User with this email does not exist"}, status=status.HTTP_400_BAD_REQUEST)
 
-        otp = str(random.randint(1000, 9999))
+        otp = str(random.randint(100000, 999999))
         OTP.objects.create(
             user=user,
             code=otp,

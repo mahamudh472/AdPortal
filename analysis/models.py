@@ -20,4 +20,15 @@ class AnalysisDaily(models.Model):
 
     def __str__(self):
         return f"Analysis for {self.campaign_name} {self.date} on {self.platform}"
-    
+
+
+class Report(models.Model):
+    name = models.CharField(max_length=255)
+    organization = models.ForeignKey('main.Organization', on_delete=models.CASCADE, related_name='reports')
+    created_at = models.DateTimeField(auto_now_add=True)
+    file = models.FileField(upload_to='reports/')
+    report_type = models.CharField(max_length=50)  # e.g., 'daily', 'weekly', 'custom'
+
+    def __str__(self):
+        return self.name
+

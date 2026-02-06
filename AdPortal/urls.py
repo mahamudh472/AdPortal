@@ -16,6 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
@@ -25,6 +27,7 @@ urlpatterns = [
     path('api/v1/admin/', include('admin_dashboard.urls')),
     path('api/v1/finance/', include('finance.urls')),
     path('api/v1/main/', include('main.urls')),
+    path('api/v1/analysis/', include('analysis.urls')),
     path('api/v1/auth/meta/connect/', MetaConnect.as_view()),
     path('api/v1/auth/meta/callback/', MetaCallback.as_view()),
     path('api/v1/auth/tiktok/connect/', TikTokConnect.as_view()),
@@ -34,4 +37,4 @@ urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
