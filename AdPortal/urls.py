@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect
+from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect, GoogleConnect, GoogleCallback
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
@@ -32,6 +32,8 @@ urlpatterns = [
     path('api/v1/auth/meta/callback/', MetaCallback.as_view()),
     path('api/v1/auth/tiktok/connect/', TikTokConnect.as_view()),
     path('api/v1/auth/tiktok/callback/', TikTokCallback.as_view()),
+    path('api/v1/auth/google/connect/', GoogleConnect.as_view()),
+    path('api/v1/auth/google/callback/', GoogleCallback.as_view()),
 
     path('silk/', include('silk.urls', namespace='silk')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

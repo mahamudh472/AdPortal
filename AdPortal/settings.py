@@ -99,6 +99,13 @@ DATABASES = {
     }
 }
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/1",
+    }
+}
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -180,9 +187,15 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL')
 
 META_APP_ID = os.getenv('META_APP_ID')
 META_APP_SECRET = os.getenv('META_APP_SECRET')
+META_REDIRECT_URI = os.getenv('META_REDIRECT_URI')
 
 TIKTOK_APP_ID = os.getenv('TIKTOK_APP_ID')
 TIKTOK_APP_SECRET = os.getenv('TIKTOK_APP_SECRET')
+TIKTOK_REDIRECT_URI = os.getenv('TIKTOK_REDIRECT_URI')
+
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Your One-Time Password (OTP) - AdPortal</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif; background-color: #f3f4f6; line-height: 1.6;">
+    <!-- Main Container -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
+        <tr>
+            <td style="padding: 40px 20px;">
+                <!-- Email Wrapper -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 32px 40px; text-align: center; border-bottom: 1px solid #e5e7eb;">
+                            <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #2563EB; letter-spacing: -0.5px;">AdPortal</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px 40px 32px;">
+                            <!-- Title -->
+                            <h2 style="margin: 0 0 24px; font-size: 24px; font-weight: 600; color: #111827; line-height: 1.3;">Your One-Time Password (OTP)</h2>
+                            
+                            <!-- Greeting -->
+                            <p style="margin: 0 0 24px; font-size: 16px; color: #374151;">
+                                Hi <strong>{{user_name}}</strong>,
+                            </p>
+                            
+                            <!-- Body Text -->
+                            <p style="margin: 0 0 32px; font-size: 16px; color: #374151;">
+                                Use the following code to complete your verification. For your security, this code will expire soon.
+                            </p>
+                            
+                            <!-- OTP Box -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 32px;">
+                                <tr>
+                                    <td style="text-align: center;">
+                                        <div style="display: inline-block; background-color: #EFF6FF; border: 2px solid #2563EB; border-radius: 12px; padding: 24px 48px;">
+                                            <div style="font-size: 42px; font-weight: 700; color: #2563EB; letter-spacing: 8px; font-family: 'Courier New', monospace;">{{otp}}</div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Expiry Notice -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 32px;">
+                                <tr>
+                                    <td style="background-color: #FEF3C7; border-left: 4px solid #F59E0B; border-radius: 6px; padding: 16px 20px;">
+                                        <p style="margin: 0; font-size: 14px; color: #92400E; font-weight: 500;">
+                                            ⏱️ This code expires in <strong>{{expiry_minutes}} minutes</strong>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Security Note -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="background-color: #F3F4F6; border-radius: 8px; padding: 16px 20px;">
+                                        <p style="margin: 0; font-size: 14px; color: #6B7280;">
+                                            🔒 <strong>Security tip:</strong> If you didn't request this code, please ignore this email. Your account is safe.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 32px 40px; background-color: #F9FAFB; border-top: 1px solid #e5e7eb; border-radius: 0 0 12px 12px;">
+                            <p style="margin: 0 0 8px; font-size: 14px; color: #6B7280; text-align: center;">
+                                © {{year}} AdPortal. All rights reserved.
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #9CA3AF; text-align: center;">
+                                AI-Powered Ad Analytics Platform
+                            </p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

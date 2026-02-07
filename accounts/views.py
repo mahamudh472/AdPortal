@@ -8,6 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import GenericAPIView, ListAPIView
 from accounts.permissions import IsRegularPlatformUser
+from accounts.email_utils import send_otp_email, send_welcome_email
 from accounts.serializers import (
     CustomTokenObtainPairSerializer,
     NotificationSettingsSerializer, 
@@ -42,12 +43,13 @@ class RegisterView(GenericAPIView):
             print(f"Sending OTP {otp} to email {user.email}")
             
             try:
-                send_mail(
-                    'Verify your email',
-                    f'Your OTP for email verification is: {otp}',
-                    settings.DEFAULT_FROM_EMAIL,
-                    [user.email],
+                send_otp_email(
+                    user_email=user.email,
+                    user_name=user.get_full_name() or user.email.split('@')[0],
+                    otp_code=otp,
+                    expiry_minutes=10
                 )
+                # Send welcome email after successful OTP
                 return Response({"message": "Otp sent successfully"}, status=status.HTTP_201_CREATED)
             except Exception as e:
                 # Log the error for debugging
@@ -83,6 +85,16 @@ class VerifyEmailView(GenericAPIView):
                     user.save()
                     otp_record.is_used = True
                     otp_record.save()
+                    
+                    # Send welcome email after email verification
+                    try:
+                        send_welcome_email(
+                            user_email=user.email,
+                            user_name=user.get_full_name() or user.email.split('@')[0]
+                        )
+                    except Exception as e:
+                        print(f"Welcome email failed: {str(e)}")
+                    
                     return Response({"message": f"Email {email} successfully verified"}, status=status.HTTP_200_OK)
                     
                 else:
@@ -176,11 +188,11 @@ class SendOTPView(GenericAPIView):
         print(f"Sending OTP {otp} to email {user.email}")
                 
         try:    
-            send_mail(
-                'Your OTP Code',
-                f'Your OTP is: {otp}',
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
+            send_otp_email(
+                user_email=user.email,
+                user_name=user.get_full_name() or user.email.split('@')[0],
+                otp_code=otp,
+                expiry_minutes=10
             )
             return Response({"message": "Otp sent successfully"}, status=status.HTTP_200_OK)
         

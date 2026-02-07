@@ -20,6 +20,10 @@ from .mixins import RequiredOrganizationIDMixin
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.core.mail import send_mail
 from django.conf import settings
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
+from accounts.email_utils import send_team_invitation_email, send_welcome_email, send_account_created_email
+import random
 
 
 
@@ -330,14 +334,61 @@ class TeamInvitationAPIView(generics.GenericAPIView):
 			invited_by=request.user
 		)
 		invite_link = f"{settings.FRONTEND_URL}/accept-invite/{invitation.token}/"
-		send_mail(
-			subject=f"Invitation to join {organization.name} on AdPortal",
-			message=f"You have been invited to join the organization {organization.name} as a {role}. Please click the following link to accept the invitation: {invite_link}",
-			from_email=settings.DEFAULT_FROM_EMAIL,
-			recipient_list=[email],
-			fail_silently=False,
-		)
+		
+		try:
+			send_team_invitation_email(
+				invitee_email=email,
+				inviter_name=request.user.get_full_name() or request.user.email,
+				organization_name=organization.name,
+				invite_link=invite_link
+			)
+		except Exception as e:
+			print(f"Invitation email failed: {str(e)}")
+			# Continue even if email fails
+		
 		return Response({'message': 'Invitation sent successfully'}, status=status.HTTP_200_OK)
 
 
+class InvitationAcceptAPIView(APIView):
+	permission_classes = [IsRegularPlatformUser|AllowAny]
+
+	def get(self, request, *args, **kwargs):
+		token = kwargs.get('token')
+		invitation = TeamInvitation.objects.filter(token=token, status='PENDING').first()
+		if not invitation:
+			return Response({'error': 'Invalid or expired invitation token.'}, status=status.HTTP_400_BAD_REQUEST)
+		if not User.objects.filter(email=invitation.email).exists():
+			# Create a temporary user and send them email and password
+			temp_password = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=10))
+			user = User.objects.create_user(
+				email=invitation.email,
+				password=temp_password,
+				is_active=True
+			)
+			
+			try:
+				# Send account creation email with HTML template
+				send_account_created_email(
+					user_email=invitation.email,
+					temp_password=temp_password,
+					organization_name=invitation.organization.name
+				)
+			except Exception as e:
+				print(f"Account creation email failed: {str(e)}")
+		else:
+			user = User.objects.filter(email=invitation.email).first()
+
+		if OrganizationMember.objects.filter(user=user, organization=invitation.organization).exists():
+			return Response({'error': 'You are already a member of this organization.'}, status=status.HTTP_400_BAD_REQUEST)
 		
+		OrganizationMember.objects.create(
+			user=user,
+			organization=invitation.organization,
+			role=invitation.role,
+			status='ACTIVE'
+		)
+		invitation.status = 'ACCEPTED'
+		invitation.save()
+		
+		return Response({'message': f'You have successfully joined the organization {invitation.organization.name} as a {invitation.role}.'}, status=status.HTTP_200_OK)
+

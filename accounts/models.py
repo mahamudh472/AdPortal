@@ -49,6 +49,16 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []  # nothing else required for createsuperuser
 
+    def get_full_name(self):
+        """Return the user's full name or email username as fallback."""
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}".strip()
+        elif self.first_name:
+            return self.first_name
+        elif self.last_name:
+            return self.last_name
+        return self.email.split('@')[0]
+
     class Meta:
         db_table = 'users'
 
