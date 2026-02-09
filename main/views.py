@@ -94,17 +94,21 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 		)
 	]
 )
-class CreateAdAPIView(generics.GenericAPIView):
+class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	
 	def post(self, request, *args, **kwargs):
 		serializer = CreateAdSerializer(data=request.data, context={'request': request})
 		user = request.user
-
+		snowflake_id = self.get_org_id()
+		organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		
 		if serializer.is_valid(raise_exception=True):
 			data = serializer.validated_data
 			campaign = create_unified_campaign(
-				user=user,
+				organization=organization,
 				data=serializer.validated_data,
 			)
 			for platform in data['platforms']:

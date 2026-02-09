@@ -7,8 +7,7 @@ from main.models import (
 from django.db import transaction
 
 @transaction.atomic
-def create_unified_campaign(user, data):
-	organization = Organization.objects.get(organizationmember__user=user)
+def create_unified_campaign(organization, data):
 	campaign = UnifiedCampaign.objects.create(
 		organization=organization,
 		name=data['name'],

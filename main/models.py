@@ -130,7 +130,7 @@ class AdIntegration(models.Model):
 class UnifiedCampaign(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
 
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
 
     objective = models.CharField(
         max_length=20,
@@ -150,6 +150,10 @@ class UnifiedCampaign(models.Model):
 
     def __str__(self):
         return self.name
+    
+    class Meta:
+        unique_together = ('organization', 'name')
+
 
 class CampaignBudget(models.Model):
     campaign = models.ForeignKey(UnifiedCampaign, on_delete=models.CASCADE)
