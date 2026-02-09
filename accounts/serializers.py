@@ -53,10 +53,15 @@ class UserSerializer(serializers.ModelSerializer):
         exclude = ['password', 'groups', 'user_permissions']
     
 class SimpleUserSerializer(serializers.ModelSerializer):
+    is_admin = serializers.SerializerMethodField()
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'phone_number',]
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone_number', 'is_admin']
     
+    def get_is_admin(self, obj):
+        if obj.is_superuser or obj.is_staff:
+            return True
+        return False
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -64,7 +69,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         if not self.user.is_active:
             raise serializers.ValidationError("User account is not active.")
-        organizations = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE').values_list('snowflake_id', flat=True)
+        organizations = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE').values_list('snowflake_id', 'name')
         
         selected_organization = organizations.first() if organizations else None
         subscription = Subscription.objects.filter(organization__snowflake_id=selected_organization, status='active').select_related('plan').first() if selected_organization else None
