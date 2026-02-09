@@ -5,7 +5,7 @@ from django.db import models
 from accounts.models import User
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
-    CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer
+    AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer
 )
 from .models import UnifiedCampaign, Organization, OrganizationMember, TeamInvitation
 from main.utils.object_handlers import (
@@ -15,7 +15,7 @@ from accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatform
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
-from .ai_services import generate_ad_copy
+from .ai_services import generate_ad_copy, generate_copy
 from .mixins import RequiredOrganizationIDMixin
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.core.mail import send_mail
@@ -130,7 +130,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 		)
 	]
 )
-class AICopyGeneratorAPIView(generics.GenericAPIView):
+class AICopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 	serializer_class = AICopyRequestSerializer
 
@@ -139,7 +139,7 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 		if not serializer.is_valid():
 			return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 		data = serializer.validated_data
-		generated_copy = generate_ad_copy(
+		generated_copy = generate_copy(
 			product=data['product'],
 			audience=data['audience'],
 			benefits=data['benefits'],
@@ -148,6 +148,27 @@ class AICopyGeneratorAPIView(generics.GenericAPIView):
 		)
 		
 		return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
+
+
+class AIAdCopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+	serializer_class = AIAdCopySerializer
+
+	def post(self, request, *args, **kwargs):
+		serializer = self.get_serializer(data=request.data)
+
+		if not serializer.is_valid():
+			return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+			
+		data = serializer.validated_data
+		generated_copy = generate_ad_copy(
+			product_service=data['product_service'],
+			target_audience=data['target_audience'],
+			key_benefits=data['key_benefits'],
+			tone=data['tone']
+		)
+		
+		return Response({'Ad copy': generated_copy}, status=status.HTTP_200_OK)
 
 @extend_schema(
 	parameters=[

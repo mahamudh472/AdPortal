@@ -110,6 +110,11 @@ class AICopyRequestSerializer(serializers.Serializer):
     tone = serializers.ChoiceField(choices=['Professional', 'Casual', 'Friendly'])
     copy_type = serializers.ChoiceField(choices=['Headlines', 'Primary Text', 'Descriptions', 'CTAs'])
 
+class AIAdCopySerializer(serializers.Serializer):
+    product_service = serializers.CharField(max_length=200)
+    target_audience = serializers.CharField(max_length=200)
+    key_benefits = serializers.CharField()
+    tone = serializers.CharField(max_length=50)
 
 class BillingHistorySerializer(serializers.ModelSerializer):
     invoice_url = serializers.SerializerMethodField()
