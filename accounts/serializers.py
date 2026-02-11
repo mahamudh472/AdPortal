@@ -9,12 +9,11 @@ class RegisterSerializer(serializers.ModelSerializer):
     timezone = serializers.CharField(required=True)
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'password', 'timezone']
+        fields = ['id', 'full_name', 'email', 'password', 'timezone']
     def create(self, validated_data):
         user = User.objects.create_user(
             email=validated_data['email'],
-            first_name=validated_data.get('first_name', ''),
-            last_name=validated_data.get('last_name', ''),
+            full_name=validated_data.get('full_name', ''),
             is_active=False,
             timezone=validated_data['timezone']
         )
@@ -56,7 +55,7 @@ class SimpleUserSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'phone_number', 'is_admin']
+        fields = ['id', 'full_name', 'email', 'phone_number', 'is_admin']
     
     def get_is_admin(self, obj):
         if obj.is_superuser or obj.is_staff:

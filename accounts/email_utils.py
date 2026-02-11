@@ -18,19 +18,11 @@ def get_user_display_name(user_or_email, fallback_name=None):
     Returns:
         Display name string
     """
-    # If it's a User object with get_full_name method
-    if hasattr(user_or_email, 'get_full_name'):
-        return user_or_email.get_full_name()
-    
-    # If it's a User object with first_name/last_name
-    if hasattr(user_or_email, 'first_name') and hasattr(user_or_email, 'last_name'):
-        if user_or_email.first_name and user_or_email.last_name:
-            return f"{user_or_email.first_name} {user_or_email.last_name}".strip()
-        elif user_or_email.first_name:
-            return user_or_email.first_name
-        elif user_or_email.last_name:
-            return user_or_email.last_name
-    
+   
+    # If it's a User object with full_name
+    if hasattr(user_or_email, 'full_name'):
+        return user_or_email.full_name
+
     # If it's a string (email)
     if isinstance(user_or_email, str):
         if '@' in user_or_email:

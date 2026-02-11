@@ -363,7 +363,7 @@ class TeamInvitationAPIView(generics.GenericAPIView):
 		try:
 			send_team_invitation_email(
 				invitee_email=email,
-				inviter_name=request.user.get_full_name() or request.user.email,
+				inviter_name=request.user.full_name or request.user.email,
 				organization_name=organization.name,
 				invite_link=invite_link
 			)
@@ -417,3 +417,30 @@ class InvitationAcceptAPIView(APIView):
 		
 		return Response({'message': f'You have successfully joined the organization {invitation.organization.name} as a {invitation.role}.'}, status=status.HTTP_200_OK)
 
+class IntegrationStatusAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def get(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        
+        # show META, GOOGLE, TIKTOK integrations with their status and created at even if they are no objects for that platform
+        integrations = []
+        platforms = ['META', 'GOOGLE', 'TIKTOK']
+        for platform in platforms:
+            integration = organization.integrations.filter(platform=platform).first()
+            if integration:
+                integrations.append({
+                    'platform': platform,
+                    'status': True,
+                    'created_at': integration.created_at
+                })
+            else:
+                integrations.append({
+                    'platform': platform,
+                    'status': False,
+                    'created_at': None
+                })
+        return Response({'integrations': integrations}, status=status.HTTP_200_OK)

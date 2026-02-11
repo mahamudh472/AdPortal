@@ -6,14 +6,20 @@ from .models import AnalysisDaily, Report
 from .serializers import ReportSerializer
 from .tasks import generate_report_task
 from accounts.permissions import IsOrganizationMember, IsAdminOrOwnerOfOrganization, IsRegularPlatformUser
+from rest_framework.pagination import PageNumberPagination
 
 VALID_PLATFORMS = {'META', 'TIKTOK', 'GOOGLE'}
 VALID_METRICS = {'spend', 'impressions', 'clicks', 'ctr', 'cpc', 'roas'}
 
+class ReportPagination(PageNumberPagination):
+    page_size = 15
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class ReportListView(RequiredOrganizationIDMixin, ListAPIView):
     serializer_class = ReportSerializer
     permission_classes = [IsOrganizationMember | IsAdminOrOwnerOfOrganization | IsRegularPlatformUser]
+    pagination_class = ReportPagination
     
     def get_queryset(self):
         org_id = self.get_org_id()

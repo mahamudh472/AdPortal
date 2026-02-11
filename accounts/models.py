@@ -26,8 +26,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, max_length=255)
     username = models.CharField(max_length=150, blank=True, null=True)
-    first_name = models.CharField(max_length=30, blank=True, null=True)
-    last_name = models.CharField(max_length=30, blank=True, null=True)
+    full_name = models.CharField(max_length=30, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
 
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
@@ -49,15 +48,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []  # nothing else required for createsuperuser
 
-    def get_full_name(self):
-        """Return the user's full name or email username as fallback."""
-        if self.first_name and self.last_name:
-            return f"{self.first_name} {self.last_name}".strip()
-        elif self.first_name:
-            return self.first_name
-        elif self.last_name:
-            return self.last_name
-        return self.email.split('@')[0]
+    
 
     class Meta:
         db_table = 'users'
@@ -65,10 +56,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.email
     
-    @property
-    def full_name(self):
-        return f"{self.first_name} {self.last_name}".strip()
-
 
 class OTP(models.Model):
     """OTP for authentication purposes"""
@@ -98,7 +85,7 @@ class Notification(models.Model):
     read = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.user.first_name}: {self.message}"
+        return f"{self.user.full_name}: {self.message}"
 
 class NotificationSetting(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="notification_setting")

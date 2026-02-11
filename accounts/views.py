@@ -45,7 +45,7 @@ class RegisterView(GenericAPIView):
             try:
                 send_otp_email(
                     user_email=user.email,
-                    user_name=user.get_full_name() or user.email.split('@')[0],
+                    user_name=user.full_name or user.email.split('@')[0],
                     otp_code=otp,
                     expiry_minutes=10
                 )
@@ -90,7 +90,7 @@ class VerifyEmailView(GenericAPIView):
                     try:
                         send_welcome_email(
                             user_email=user.email,
-                            user_name=user.get_full_name() or user.email.split('@')[0]
+                            user_name=user.full_name or user.email.split('@')[0]
                         )
                     except Exception as e:
                         print(f"Welcome email failed: {str(e)}")
@@ -190,7 +190,7 @@ class SendOTPView(GenericAPIView):
         try:    
             send_otp_email(
                 user_email=user.email,
-                user_name=user.get_full_name() or user.email.split('@')[0],
+                user_name=user.full_name or user.email.split('@')[0],
                 otp_code=otp,
                 expiry_minutes=10
             )
