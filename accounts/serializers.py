@@ -70,7 +70,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise serializers.ValidationError("User account is not active.")
         organizations = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE').values_list('snowflake_id', 'name')
         
-        selected_organization = organizations.first() if organizations else None
+        selected_organization = organizations.first()[0] if organizations else None
         subscription = Subscription.objects.filter(organization__snowflake_id=selected_organization, status='active').select_related('plan').first() if selected_organization else None
         if subscription:
             plan_name = subscription.plan.name

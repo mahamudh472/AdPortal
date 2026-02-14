@@ -62,15 +62,15 @@ class DashboardAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         from main.models import AIInsight
         # Create some dummy AI insights if there are none for testing purposes
         test_campaign = UnifiedCampaign.objects.filter(organization=organization).first()
-        if not organization.ai_insights.exists():
-            AIInsight.objects.create(
+        if not organization.ai_insights.exists() and test_campaign:
+            _ = AIInsight.objects.create(
                 organization=organization,
                 campaign=test_campaign,
                 title="Test Insight 1",
                 description="This is a test insight.",
                 impect="HIGH"
             )
-            AIInsight.objects.create(
+            _ = AIInsight.objects.create(
                 organization=organization,
                 campaign=test_campaign,
                 title="Test Insight 2",
