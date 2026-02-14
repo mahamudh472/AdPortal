@@ -134,14 +134,18 @@ class UnifiedCampaign(models.Model):
 
     objective = models.CharField(
         max_length=20,
-        choices=UnifiedObjective.choices
+        choices=UnifiedObjective.choices,
+        blank=True,
+        default=''
     )
 
     status = models.CharField(
         max_length=20,
         choices=UnifiedStatus.choices,
-        default=UnifiedStatus.PAUSED
+        default=UnifiedStatus.DRAFT
     )
+
+    draft_data = models.JSONField(default=dict, blank=True)
 
     currency = models.CharField(max_length=3, default="USD")
 

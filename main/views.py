@@ -1,13 +1,13 @@
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework import generics, status
-from django.db import models
+from django.db import models, IntegrityError
 from accounts.models import User
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
     AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer
 )
-from .models import UnifiedCampaign, Organization, OrganizationMember, TeamInvitation
+from .models import AdAsset, UnifiedCampaign, Organization, OrganizationMember, TeamInvitation, CampaignBudget, AdIntegration
 from main.utils.object_handlers import (
     create_unified_campaign, create_full_ad_for_platform
 )
@@ -125,7 +125,15 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 )
 class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
-	
+	serializer_class = CreateAdSerializer
+
+	REQUIRED_FIELDS_FOR_PUBLISH = [
+		'platforms', 'campaign_name', 'objective', 'budgets',
+		'min_age', 'max_age', 'gender', 'locations', 'keywords',
+		'ad_name', 'headline', 'primary_text', 'description',
+		'call_to_action', 'destination_url'
+	]
+
 	def post(self, request, *args, **kwargs):
 		serializer = CreateAdSerializer(data=request.data, context={'request': request})
 		user = request.user
@@ -133,19 +141,155 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 		organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
 		if not organization:
 			raise ValidationError({'org_id': 'Invalid organization id'})
-		
-		if serializer.is_valid(raise_exception=True):
-			data = serializer.validated_data
-			campaign = create_unified_campaign(
-				organization=organization,
-				data=serializer.validated_data,
-			)
-			for platform in data['platforms']:
-				create_full_ad_for_platform(campaign, data, platform)
-			
-			return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+
+		serializer.is_valid(raise_exception=True)
+		data = serializer.validated_data
+
+		campaign_id = data.pop('campaign_id', None)
+		is_draft = data.pop('draft', True)
+		ad_file = data.pop('ad_file', None)
+
+		if campaign_id:
+			campaign = self._update_draft(campaign_id, organization, data, ad_file)
+			response_status = status.HTTP_200_OK
 		else:
-			return Response({'error': 'Error creating Ad'}, status=status.HTTP_400_BAD_REQUEST)
+			campaign = self._create_draft(organization, data, ad_file)
+			response_status = status.HTTP_201_CREATED
+
+		if not is_draft:
+			self._publish_campaign(campaign, organization)
+
+		return Response({
+			'campaign_id': campaign.id,
+			'status': campaign.status,
+			'campaign_name': campaign.name,
+			'objective': campaign.objective,
+			'draft_data': campaign.draft_data,
+		}, status=response_status)
+
+	def _create_draft(self, organization, data, ad_file=None):
+		campaign_name = data.pop('campaign_name', None)
+		if not campaign_name:
+			raise ValidationError({'campaign_name': 'Campaign name is required to create a new ad'})
+
+		objective = data.pop('objective', '')
+		draft_data = self._prepare_for_json(data)
+
+		if ad_file:
+			asset = AdAsset.objects.create(
+				organization=organization,
+				file=ad_file,
+				file_type=ad_file.content_type,
+			)
+			draft_data['ad_asset_id'] = asset.id
+
+		try:
+			campaign = UnifiedCampaign.objects.create(
+				organization=organization,
+				name=campaign_name,
+				objective=objective,
+				status='DRAFT',
+				draft_data=draft_data,
+			)
+		except IntegrityError:
+			raise ValidationError({'campaign_name': 'A campaign with this name already exists in your organization.'})
+		return campaign
+
+	def _update_draft(self, campaign_id, organization, data, ad_file=None):
+		campaign = UnifiedCampaign.objects.filter(
+			id=campaign_id, organization=organization, status='DRAFT'
+		).first()
+		if not campaign:
+			raise ValidationError({'campaign_id': 'Draft campaign not found'})
+
+		if 'campaign_name' in data:
+			campaign.name = data.pop('campaign_name')
+		if 'objective' in data:
+			campaign.objective = data.pop('objective')
+
+		draft_data = campaign.draft_data or {}
+		draft_data.update(self._prepare_for_json(data))
+
+		if ad_file:
+			asset = AdAsset.objects.create(
+				organization=organization,
+				file=ad_file,
+				file_type=ad_file.content_type,
+			)
+			draft_data['ad_asset_id'] = asset.id
+
+		campaign.draft_data = draft_data
+		try:
+			campaign.save()
+		except IntegrityError:
+			raise ValidationError({'campaign_name': 'A campaign with this name already exists in your organization.'})
+		return campaign
+
+	def _prepare_for_json(self, data):
+		"""Convert validated data to JSON-serializable format."""
+		result = {}
+		for key, value in data.items():
+			if isinstance(value, list) and value and isinstance(value[0], dict):
+				result[key] = [
+					{k: v.isoformat() if hasattr(v, 'isoformat') else v for k, v in item.items()}
+					for item in value
+				]
+			elif hasattr(value, 'isoformat'):
+				result[key] = value.isoformat()
+			else:
+				result[key] = value
+		return result
+
+	def _publish_campaign(self, campaign, organization):
+		"""Validate all required fields and create platform objects."""
+		if campaign.status != 'DRAFT':
+			raise ValidationError({'status': 'Only draft campaigns can be published.'})
+
+		draft_data = campaign.draft_data or {}
+
+		all_data = {
+			'campaign_name': campaign.name,
+			'objective': campaign.objective,
+			**draft_data,
+		}
+
+		missing = [f for f in self.REQUIRED_FIELDS_FOR_PUBLISH if not all_data.get(f)]
+		if missing:
+			raise ValidationError({
+				'missing_fields': f"Required to publish: {', '.join(missing)}"
+			})
+
+		# Create budgets
+		for budget in draft_data.get('budgets', []):
+			CampaignBudget.objects.update_or_create(
+				campaign=campaign,
+				platform=budget['platform'],
+				defaults={
+					'budget_type': budget['budget_type'],
+					'daily_budget_minor': budget['budget'],
+					'start_date': budget['start_date'],
+					'end_date': budget['end_date'],
+					'run_continuously': budget['run_continuously'],
+				}
+			)
+
+		# Resolve pre-uploaded ad asset
+		ad_asset = None
+		ad_asset_id = draft_data.get('ad_asset_id')
+		if ad_asset_id:
+			ad_asset = AdAsset.objects.filter(id=ad_asset_id).first()
+
+		# Build data dict for platform object creation
+		full_data = {
+			'name': campaign.name,
+			**draft_data,
+		}
+
+		for platform in draft_data['platforms']:
+			create_full_ad_for_platform(campaign, full_data, platform, ad_asset=ad_asset)
+
+		campaign.status = 'ACTIVE'
+		campaign.save()
 
 
 @extend_schema(

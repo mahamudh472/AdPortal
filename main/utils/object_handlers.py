@@ -30,11 +30,19 @@ def create_unified_campaign(organization, data):
 	return campaign
 
 @transaction.atomic
-def create_full_ad_for_platform(campaign, data, platform):
+def create_full_ad_for_platform(campaign, data, platform, ad_asset=None):
+
+	integration = AdIntegration.objects.filter(
+		platform=platform,
+		organization=campaign.organization
+	).first()
+	if not integration:
+		from rest_framework.exceptions import ValidationError
+		raise ValidationError({platform: f'No ad integration found for {platform}. Please set up an ad account integration first.'})
 
 	platform_campaign = PlatformCampaign.objects.create(
 		unified_campaign=campaign,
-		integration=AdIntegration.objects.get(platform=platform),
+		integration=integration,
 		platform_campaign_id=None,
 	)
 
@@ -51,7 +59,7 @@ def create_full_ad_for_platform(campaign, data, platform):
 		},
 	)
 
-	if data.get('ad_file'):
+	if data.get('ad_file') and not ad_asset:
 		ad_file = data.get('ad_file')
 		file_type = ad_file.content_type
 		
@@ -64,13 +72,13 @@ def create_full_ad_for_platform(campaign, data, platform):
 	# Create Ad
 	ad = Ad.objects.create(
 		ad_group=ad_group,
-		name=f"{data['name']} - Default Ad",
+		name=data.get('ad_name', f"{data['name']} - Default Ad"),
 		headline=data.get('headline', ""),
 		primary_text=data.get('primary_text', ""),
 		description=data.get('description', ""),
 		call_to_action=data.get('call_to_action', ""),
 		destination_url=data.get('destination_url', ""),
 	)
-	if data.get('ad_file'):
+	if ad_asset:
 		ad.assets.add(ad_asset)
 	return ad
