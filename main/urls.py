@@ -3,6 +3,7 @@ from . import views
 from .integration_handler import AdProfileListView, SelectAdProfileView
 
 urlpatterns = [
+    path('dashboard/', views.DashboardAPIView.as_view()),
     path('organization/', views.OrganizationRetrieveUpdateAPIView.as_view()),
     path('integrations-status/', views.IntegrationStatusAPIView.as_view()),
 	path('campaigns/', views.CampaignListAPIView.as_view()),

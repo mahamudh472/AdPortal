@@ -1,6 +1,6 @@
 from django.utils import choices
 from accounts.serializers import SimpleUserSerializer
-from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, AdIntegration
+from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, AdIntegration, AIInsight
 from rest_framework import serializers
 import json
 from rest_framework.validators import UniqueValidator
@@ -44,6 +44,27 @@ class BudgetItemSerializer(serializers.Serializer):
     end_date = serializers.DateField()
     budget = serializers.IntegerField()
     run_continuously = serializers.BooleanField()
+
+
+class SimpleCampaignSerializer(serializers.ModelSerializer):
+    platforms = serializers.SerializerMethodField()
+    spend = serializers.SerializerMethodField()
+    performance = serializers.SerializerMethodField()
+    class Meta:
+        model = UnifiedCampaign
+        fields = ['id', 'name', 'status', 'platforms', 'created_at', 'spend', 'performance']
+    def get_platforms(self, obj):
+        return [pc.integration.platform for pc in obj.platform_campaigns.all()]
+    def get_spend(self, obj):
+        return 0
+    def get_performance(self, obj):
+        return {
+            'impressions': 0,
+            'clicks': 0,
+            'conversions': 0,
+            'ctr': 0,
+            'roas': 0
+        }
 
 class CreateAdSerializer(serializers.Serializer):
     platforms = serializers.ListField(
@@ -141,3 +162,8 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 class TeamMemberInviteSerializer(serializers.Serializer):
     email = serializers.EmailField()
     role = serializers.ChoiceField(choices=[('ADMIN', 'Admin'), ('MEMBER', 'Member')])
+
+class AIInsightSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIInsight
+        fields = ['id', 'title', 'description', 'created_at', 'impect']

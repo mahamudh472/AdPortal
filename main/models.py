@@ -397,4 +397,17 @@ class Ad(models.Model):
     class Meta:
         unique_together = ("ad_group", "platform_ad_id")
     
-    
+class AIInsight(models.Model):    
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="ai_insights")
+    campaign = models.ForeignKey(UnifiedCampaign, on_delete=models.CASCADE, related_name="ai_insights")
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    impect = models.CharField(max_length=20, choices=[('HIGH', 'High'), ('MEDIUM', 'Medium'), ('LOW', 'Low')], default='MEDIUM')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['organization', 'created_at']),
+            models.Index(fields=['campaign', 'created_at']),
+        ]

@@ -24,6 +24,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from accounts.email_utils import send_team_invitation_email, send_welcome_email, send_account_created_email
 import random
+from main.utils.helper import get_dashboard_data
 
 
 
@@ -50,6 +51,34 @@ class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.Re
 			raise ValidationError({'org_id': 'Invalid organization id'})
 		return organization
 
+class DashboardAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def get(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        from main.models import AIInsight
+        # Create some dummy AI insights if there are none for testing purposes
+        test_campaign = UnifiedCampaign.objects.filter(organization=organization).first()
+        if not organization.ai_insights.exists():
+            AIInsight.objects.create(
+                organization=organization,
+                campaign=test_campaign,
+                title="Test Insight 1",
+                description="This is a test insight.",
+                impect="HIGH"
+            )
+            AIInsight.objects.create(
+                organization=organization,
+                campaign=test_campaign,
+                title="Test Insight 2",
+                description="This is another test insight.",
+                impect="MEDIUM"
+            )
+        data = get_dashboard_data(organization.snowflake_id)
+        return Response(data, status=status.HTTP_200_OK)
 
 class CampaignPagination(PageNumberPagination):
 	page_size = 10
@@ -377,7 +406,7 @@ class TeamInvitationAPIView(generics.GenericAPIView):
 class InvitationAcceptAPIView(APIView):
 	permission_classes = [IsRegularPlatformUser|AllowAny]
 
-	def get(self, request, *args, **kwargs):
+	def post(self, request, *args, **kwargs):
 		token = kwargs.get('token')
 		invitation = TeamInvitation.objects.filter(token=token, status='PENDING').first()
 		if not invitation:

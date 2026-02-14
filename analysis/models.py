@@ -1,7 +1,8 @@
 from django.db import models
-from main.models import Platform
+from main.models import Platform, Organization
 
 class AnalysisDaily(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='daily_analyses')
     platform = models.CharField(max_length=100, choices=Platform.choices)
     account_id = models.CharField(max_length=100)
     campaign_id = models.CharField(max_length=100, blank=True, null=True)
