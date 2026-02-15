@@ -1,6 +1,6 @@
 from analysis.models import AnalysisDaily
 
-def save_daily_analytics(data, account_id, date):
+def save_daily_analytics(org, data, account_id, date):
     for campaign_name, matrix in data.items():
         campaign_id = matrix.get("campaign_id")
         device_breakdown = matrix.get("device_breakdown", {})
@@ -12,6 +12,7 @@ def save_daily_analytics(data, account_id, date):
         cpc = total_performance.get("cpc", 0.0)
         roas = total_performance.get("roas", 0.0)
         analysis_entry, created = AnalysisDaily.objects.update_or_create(
+            organization=org,
             platform="TIKTOK",
             account_id=account_id,
             campaign_id=campaign_id,

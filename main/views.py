@@ -112,6 +112,23 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
 		queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
 		return queryset
 
+class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = CampaignSerializer
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        org_snowflake_id = self.get_org_id()        
+        organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        queryset = UnifiedCampaign.objects.filter(organization=organization)
+        return queryset
+    
+    def perform_destroy(self, instance):
+        super().permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+        instance.delete()
+
 @extend_schema(
 	parameters=[
 		OpenApiParameter(
@@ -370,7 +387,7 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 		date = timezone.now().date().strftime("%Y-%m-%d")
 		data = tiktok_analytics(target_date=date)
 		from .utils.analytics import save_daily_analytics
-		save_daily_analytics(data, integration.ad_account_id, date)
+		save_daily_analytics(organization, data, integration.ad_account_id, date)
 		analytics_data = {
 			'data': data
 		}

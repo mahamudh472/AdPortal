@@ -19,6 +19,7 @@ class CampaignSerializer(serializers.ModelSerializer):
         model = UnifiedCampaign
         fields = '__all__'
 
+    # TODO: Need to add required for frontend
     # TODO : Implement the methods to calculate the metrics
     def get_platforms(self, obj):
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]

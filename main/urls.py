@@ -7,6 +7,7 @@ urlpatterns = [
     path('organization/', views.OrganizationRetrieveUpdateAPIView.as_view()),
     path('integrations-status/', views.IntegrationStatusAPIView.as_view()),
 	path('campaigns/', views.CampaignListAPIView.as_view()),
+    path('campaign/<int:id>/', views.CampaignRetrieveUpdateDestroyAPIView.as_view()),
 	path('create-ad/', views.CreateAdAPIView.as_view()),
 	path('get-ad-profiles/', AdProfileListView.as_view()),
 	path('select-ad-profile/', SelectAdProfileView.as_view()),
