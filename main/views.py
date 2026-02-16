@@ -1,11 +1,12 @@
-from rest_framework.exceptions import ValidationError
+from openai import organization
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
 from rest_framework import generics, status
 from django.db import models, IntegrityError
 from accounts.models import User
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
-    AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer
+    AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer
 )
 from .models import AdAsset, UnifiedCampaign, Organization, OrganizationMember, TeamInvitation, CampaignBudget, AdIntegration
 from main.utils.object_handlers import (
@@ -24,7 +25,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from accounts.email_utils import send_team_invitation_email, send_welcome_email, send_account_created_email
 import random
-from main.utils.helper import get_dashboard_data
+from main.utils.helper import get_dashboard_data, get_analytics_data
 
 
 
@@ -126,9 +127,10 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
         return queryset
     
     def perform_destroy(self, instance):
-        super().permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+        # Change permission to allow only owner or admin to delete campaign
+        if not instance.organization.memberships.filter(user=self.request.user, role__in=['OWNER', 'ADMIN']).exists():
+            raise PermissionDenied("You do not have permission to delete this campaign.")
         instance.delete()
-
 @extend_schema(
 	parameters=[
 		OpenApiParameter(
@@ -196,7 +198,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 			asset = AdAsset.objects.create(
 				organization=organization,
 				file=ad_file,
-				file_type=ad_file.content_type,
+				file_type='VIDEO' if ad_file.content_type.startswith('video/') else 'IMAGE',
 			)
 			draft_data['ad_asset_id'] = asset.id
 
@@ -231,7 +233,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 			asset = AdAsset.objects.create(
 				organization=organization,
 				file=ad_file,
-				file_type=ad_file.content_type,
+				file_type='VIDEO' if ad_file.content_type.startswith('video/') else 'IMAGE',
 			)
 			draft_data['ad_asset_id'] = asset.id
 
@@ -360,6 +362,25 @@ class AIAdCopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIV
 		
 		return Response({'Ad copy': generated_copy}, status=status.HTTP_200_OK)
 
+class AIInsightPagination(PageNumberPagination):
+	page_size = 5
+	page_size_query_param = 'page_size'
+	max_page_size = 20
+
+class AIInsightListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
+	serializer_class = AIInsightSerializer
+	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+	pagination_class = AIInsightPagination
+
+	def get_queryset(self):
+		org_snowflake_id = self.get_org_id()
+		organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+		if not organization:
+			raise ValidationError({'org_id': 'Invalid organization id'})
+		queryset = organization.ai_insights.order_by('-created_at')
+		return queryset
+
+
 @extend_schema(
 	parameters=[
 		OpenApiParameter(
@@ -371,28 +392,17 @@ class AIAdCopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIV
 		)
 	]
 )
-class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
-	permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
-	def get(self, request, *args, **kwargs):
-		snowflake_id = self.get_org_id()
-		organization = Organization.objects.get(snowflake_id=snowflake_id, memberships__user=request.user)
-		campaigns = UnifiedCampaign.objects.filter(organization=organization)
-		integration = organization.integrations.filter(platform='TIKTOK').first()
-		if not integration:
-			return Response({'error': 'No TikTok integration found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
-		access_token = integration.access_token
-		from .utils.tiktok_handler import get_detailed_analytics as tiktok_analytics
-		from django.utils import timezone
-		date = timezone.now().date().strftime("%Y-%m-%d")
-		data = tiktok_analytics(target_date=date)
-		from .utils.analytics import save_daily_analytics
-		save_daily_analytics(organization, data, integration.ad_account_id, date)
-		analytics_data = {
-			'data': data
-		}
-		
-		return Response(analytics_data, status=status.HTTP_200_OK)
+class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def get(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        data = get_analytics_data(organization.snowflake_id)
+        return Response(data, status=status.HTTP_200_OK)
 
 @extend_schema(
 	parameters=[

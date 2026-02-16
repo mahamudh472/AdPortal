@@ -14,6 +14,9 @@ class AnalysisDaily(models.Model):
     spend = models.FloatField()
     ctr = models.FloatField()  # Click-Through Rate
     cpc = models.FloatField()  # Cost Per Click
+    cpm = models.FloatField(default=0)  # Cost Per Mille (per 1000 impressions)
+    conversions = models.IntegerField(default=0)  # Total conversions
+    cpa = models.FloatField(default=0)  # Cost Per Acquisition
     roas = models.FloatField()  # Return on Ad Spend
     device_breakdown = models.JSONField(blank=True, null=True)  # e.g., {"mobile": {...}, "desktop": {...}}
     class Meta:

@@ -4,6 +4,7 @@ from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from snowflake import SnowflakeGenerator
+from datetime import timedelta
 
 generator = SnowflakeGenerator(1)
 
@@ -95,7 +96,7 @@ class TeamInvitation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def is_expired(self):
-        expiration_period = timezone.timedelta(days=7)
+        expiration_period = timedelta(days=7)
         return timezone.now() > self.created_at + expiration_period
 
 class AdIntegration(models.Model):

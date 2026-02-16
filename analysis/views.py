@@ -9,7 +9,7 @@ from accounts.permissions import IsOrganizationMember, IsAdminOrOwnerOfOrganizat
 from rest_framework.pagination import PageNumberPagination
 
 VALID_PLATFORMS = {'META', 'TIKTOK', 'GOOGLE'}
-VALID_METRICS = {'spend', 'impressions', 'clicks', 'ctr', 'cpc', 'roas'}
+VALID_METRICS = {'spend', 'impressions', 'clicks', 'ctr', 'cpc', 'cpm', 'conversions', 'cpa', 'roas'}
 
 class ReportPagination(PageNumberPagination):
     page_size = 15

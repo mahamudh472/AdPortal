@@ -116,6 +116,29 @@ class CreateAdSerializer(serializers.Serializer):
     ad_name = serializers.CharField(max_length=100, required=False)
     ad_file = serializers.FileField(required=False)
 
+    ALLOWED_IMAGE_TYPES = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/bmp',
+        'image/webp', 'image/tiff', 'image/svg+xml', 'image/x-icon',
+        'image/heif', 'image/heic', 'image/avif',
+    ]
+    ALLOWED_VIDEO_TYPES = [
+        'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv',
+        'video/x-matroska', 'video/webm', 'video/mpeg', 'video/ogg',
+        'video/3gpp', 'video/3gpp2', 'video/x-flv', 'video/mp2t',
+    ]
+
+    def validate_ad_file(self, value):
+        if value:
+            content_type = value.content_type
+            allowed = self.ALLOWED_IMAGE_TYPES + self.ALLOWED_VIDEO_TYPES
+            if content_type not in allowed:
+                raise serializers.ValidationError(
+                    f"File type '{content_type}' is not supported. "
+                    f"Allowed image types: {', '.join(self.ALLOWED_IMAGE_TYPES)}. "
+                    f"Allowed video types: {', '.join(self.ALLOWED_VIDEO_TYPES)}."
+                )
+        return value
+
     headline = serializers.CharField(required=False)
     primary_text = serializers.CharField(required=False)
     description = serializers.CharField(required=False)

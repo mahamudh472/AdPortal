@@ -15,6 +15,9 @@ METRIC_MAP = {
     'clicks': ('Clicks', 'clicks'),
     'ctr': ('CTR', 'ctr'),
     'cpc': ('CPC', 'cpc'),
+    'cpm': ('CPM', 'cpm'),
+    'conversions': ('Conversions', 'conversions'),
+    'cpa': ('CPA', 'cpa'),
     'roas': ('ROAS', 'roas'),
 }
 

@@ -61,7 +61,7 @@ def create_full_ad_for_platform(campaign, data, platform, ad_asset=None):
 
 	if data.get('ad_file') and not ad_asset:
 		ad_file = data.get('ad_file')
-		file_type = ad_file.content_type
+		file_type = 'VIDEO' if ad_file.content_type.startswith('video/') else 'IMAGE'
 		
 		ad_asset = AdAsset.objects.create(
 			organization=campaign.organization,

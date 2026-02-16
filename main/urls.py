@@ -13,6 +13,7 @@ urlpatterns = [
 	path('select-ad-profile/', SelectAdProfileView.as_view()),
 	path('generate-ai-copy/', views.AICopyGeneratorAPIView.as_view()),
     path('generate-ad-copy/', views.AIAdCopyGeneratorAPIView.as_view()),
+    path('ai-insights/', views.AIInsightListAPIView.as_view()),
 	path('analytics/', views.AnalyticsAPIView.as_view()),
 	path('create-platform-campaign/', views.CreatePlatformCampaignAPIView.as_view()),
     path('team/', views.TeamAPIView.as_view()),
