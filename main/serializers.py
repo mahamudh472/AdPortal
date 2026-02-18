@@ -150,7 +150,11 @@ class CreateAdSerializer(serializers.Serializer):
     # TODO: Need to add the add proper validation
 
     def to_internal_value(self, data):
-        data = data.copy()
+        # Use dict() instead of data.copy() to avoid QueryDict.__deepcopy__
+        # which fails on file uploads (cannot pickle BufferedRandom)
+        data = dict(data.lists()) if hasattr(data, 'lists') else data.copy()
+        # Flatten single-value lists from QueryDict
+        data = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in data.items()}
 
         platforms = data.get("platforms")
 

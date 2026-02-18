@@ -14,13 +14,12 @@ class Platform(models.TextChoices):
     TIKTOK = 'TIKTOK', 'TikTok Ads'
 
 class UnifiedObjective(models.TextChoices):
+    CONVERSIONS = 'CONVERSIONS'
     AWARENESS = 'AWARENESS'
     TRAFFIC = 'TRAFFIC'
     ENGAGEMENT = 'ENGAGEMENT'
-    LEAD = 'LEAD'
-    SALES = 'SALES'
-    APP_INSTALL = 'APP_INSTALL'
-    VIDEO_VIEW = 'VIDEO_VIEW'
+    LEAD_GENERATION = 'LEAD_GENERATION'
+    APP_PROMOTION = 'APP_PROMOTION'
 
 class UnifiedStatus(models.TextChoices):
     DRAFT = 'DRAFT'
