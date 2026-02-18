@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'silk',
     'channels',
     'drf_spectacular',
+    'django_extensions'
 ]
 
 MIDDLEWARE = [
