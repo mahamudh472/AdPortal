@@ -10,11 +10,11 @@ from accounts.models import User
 from main.mixins import RequiredOrganizationIDMixin
 from main.models import AdIntegration, Platform, Organization
 from rest_framework import status
+from main.mixins import RequiredOrganizationIDMixin
 
 from main.utils.google_oauth import generate_oauth_state, validate_oauth_state
 
-def fetch_tiktok_ads_account(user):
-    organization = Organization.objects.get(organizationmember__user=user)
+def fetch_tiktok_ads_account(organization):
     ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.TIKTOK)
     if ad_profile.exists():
         access_token = ad_profile.first().access_token
@@ -26,12 +26,11 @@ def fetch_tiktok_ads_account(user):
 
         data = advertisers['data']['list']
         for item in data:
-            item['id'] = item.pop('advertiser_id')
+            item['acc_id'] = item.pop('advertiser_id')
         return {'data': data}
     return None
 
-def fetch_meta_ads_account(user):
-    organization = Organization.objects.get(organizationmember__user=user)
+def fetch_meta_ads_account(organization):
     ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META)
     if ad_profile.exists():
         access_token = ad_profile.first().access_token
@@ -39,6 +38,10 @@ def fetch_meta_ads_account(user):
             "https://graph.facebook.com/v18.0/me/adaccounts",
             params={"access_token": access_token},
         ).json()
+
+        data = ad_accounts.get('data', [])
+        for item in data:
+            item['acc_id'] = item.pop('id')
 
         return ad_accounts
     return None
@@ -315,21 +318,24 @@ class GoogleCallback(APIView):
             "google_email": google_email,
         })
 
-class AdProfileListView(APIView):
+class AdProfileListView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser]
 
     def get(self, request, *args, **kwargs):
-        user = request.user
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
         platform = request.GET.get('platform', "META").upper()
         profiles = None
         if platform == "META":
-            profiles = fetch_meta_ads_account(user)
+            profiles = fetch_meta_ads_account(organization)
         elif platform == "TIKTOK":
-            profiles = fetch_tiktok_ads_account(user)
+            profiles = fetch_tiktok_ads_account(organization)
 
         return Response(profiles)
 
-class SelectAdProfileView(APIView):
+class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser]
 
     def post(self, request, *args, **kwargs):
@@ -339,8 +345,11 @@ class SelectAdProfileView(APIView):
         if not platform or not account_id:
             return Response({'error': 'platfrom or account id is not provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user
-        organization = Organization.objects.get(organizationmember__user=user)
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
         integration = AdIntegration.objects.filter(organization=organization, platform=platform)
         if not integration.exists():
             return Response({'error': 'Integration not found'}, status=status.HTTP_400_BAD_REQUEST)
