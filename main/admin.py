@@ -3,7 +3,7 @@ from .models import (
     Organization, OrganizationMember,
     UnifiedCampaign, AdIntegration, 
     PlatformCampaign, UnifiedObjective, UnifiedStatus, 
-    AdGroup, Ad, AdAsset
+    AdGroup, Ad, AdAsset, IntegrationSyncState
 )
 
 @admin.register(Organization)
@@ -30,7 +30,7 @@ admin.site.register(PlatformCampaign)
 admin.site.register(AdGroup)
 admin.site.register(Ad)
 admin.site.register(AdAsset)
-        
+admin.site.register(IntegrationSyncState)
 
 
 # @admin.register(AdGroup)

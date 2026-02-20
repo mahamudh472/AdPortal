@@ -178,7 +178,9 @@ class PlatformCampaign(models.Model):
     unified_campaign = models.ForeignKey(
         UnifiedCampaign,
         on_delete=models.CASCADE,
-        related_name='platform_campaigns'
+        related_name='platform_campaigns',
+        null=True,
+        blank=True
     )
 
     integration = models.ForeignKey(
@@ -218,6 +220,7 @@ class PlatformCampaign(models.Model):
         unique_together = (
             'unified_campaign',
             'integration',
+            'platform_campaign_id'
         )
 
     def __str__(self):
@@ -415,3 +418,26 @@ class AIInsight(models.Model):
             models.Index(fields=['organization', 'created_at']),
             models.Index(fields=['campaign', 'created_at']),
         ]
+
+class IntegrationSyncState(models.Model):
+    integration = models.OneToOneField(
+        AdIntegration,
+        on_delete=models.CASCADE
+    )
+
+    last_successful_stage = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True
+    )
+
+    last_error_stage = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True
+    )
+
+    error_message = models.TextField(null=True, blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
