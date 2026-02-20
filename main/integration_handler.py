@@ -46,6 +46,37 @@ def fetch_meta_ads_account(organization):
         return ad_accounts
     return None
 
+
+def fetch_google_ads_account(organization):
+    ad_profile = AdIntegration.objects.filter(
+        organization=organization,
+        platform=Platform.GOOGLE
+    ).first()
+
+    if not ad_profile:
+        return None
+
+    access_token = ad_profile.access_token
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+        "Content-Type": "application/json",
+    }
+
+    response = requests.post(
+        "https://googleads.googleapis.com/v16/customers:listAccessibleCustomers",
+        headers=headers,
+        json={},   # Required even if empty
+        timeout=10
+    )
+
+    print(response.status_code)
+    print(response.text)
+
+    return response.json().get("resourceNames", [])
+
+
 class MetaConnect(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
@@ -332,6 +363,10 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
             profiles = fetch_meta_ads_account(organization)
         elif platform == "TIKTOK":
             profiles = fetch_tiktok_ads_account(organization)
+        elif platform == "GOOGLE":
+            profiles = fetch_google_ads_account(organization)
+        else:
+            return Response({'error': 'Unsupported platform'}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(profiles)
 

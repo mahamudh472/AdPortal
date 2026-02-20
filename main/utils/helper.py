@@ -3,7 +3,47 @@ from django.utils import timezone
 from datetime import timedelta
 from main.models import Organization, Platform, UnifiedCampaign
 from analysis.models import AnalysisDaily
-from main.serializers import SimpleCampaignSerializer, AIInsightSerializer
+from typing import Optional
+from django.db.models import Sum, F, FloatField, ExpressionWrapper
+from typing import Optional, Union
+
+
+def get_performance_matrics(analysis_data):
+
+    aggregates = analysis_data.aggregate(
+        total_impressions=Sum('impressions'),
+        total_clicks=Sum('clicks'),
+        total_conversions=Sum('conversions'),
+        total_spend=Sum('spend'),
+        total_weighted_roas=Sum(
+            ExpressionWrapper(F('roas') * F('spend'), output_field=FloatField())
+        )
+    )
+
+    impressions = aggregates['total_impressions'] or 0
+    clicks = aggregates['total_clicks'] or 0
+    conversions = aggregates['total_conversions'] or 0
+    spend = aggregates['total_spend'] or 0
+    weighted_roas_sum = aggregates['total_weighted_roas'] or 0
+
+    ctr = (clicks / impressions * 100) if impressions > 0 else 0
+    cpc = (spend / clicks) if clicks > 0 else 0
+    cpm = (spend / (impressions / 1000)) if impressions > 0 else 0
+    cpa = (spend / conversions) if conversions > 0 else 0
+    roas = (weighted_roas_sum / spend) if spend > 0 else 0
+
+    return {
+        'impressions': impressions,
+        'clicks': clicks,
+        'ctr': ctr,
+        'conversions': conversions,
+        'roas': roas,
+        'cpc': cpc,
+        'cpm': cpm,
+        'cpa': cpa,
+    }    
+
+
 
 def get_dashboard_data(organization_id: str):
     organization = Organization.objects.get(snowflake_id=organization_id)
@@ -41,6 +81,7 @@ def get_dashboard_data(organization_id: str):
     roas = (all_analysis_data.aggregate(avg_roas=Sum('roas'))['avg_roas'] or 0) / all_analysis_data.count() if all_analysis_data.exists() else 0
     
     recent_campaigns = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')[:5]
+    from main.serializers import AIInsightSerializer, SimpleCampaignSerializer
     ai_insights = AIInsightSerializer(organization.ai_insights.order_by('-created_at')[:5], many=True).data
     
     return {

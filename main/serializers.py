@@ -1,12 +1,22 @@
-from django.utils import choices
 from accounts.serializers import SimpleUserSerializer
-from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight
+from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight, Ad
 from rest_framework import serializers
 import json
-from rest_framework.validators import UniqueValidator
 from finance.models import Payment
+from analysis.models import AnalysisDaily
+from main.utils.helper import get_performance_matrics
 
-class CampaignSerializer(serializers.ModelSerializer):
+class PlatformAdSerializer(serializers.ModelSerializer):
+    matrics = serializers.SerializerMethodField()
+    class Meta:
+        model = Ad
+        fields = ['id', 'name', 'status', 'matrics']
+    def get_matrics(self, obj):
+        analysis = AnalysisDaily.objects.filter(adgroup_id=obj.ad_group_id)
+        analysis = get_performance_matrics(analysis)
+        return analysis
+
+class TempCampaignSerializer(serializers.ModelSerializer):
     platforms = serializers.SerializerMethodField()
     total_budget = serializers.SerializerMethodField()
     total_spent = serializers.SerializerMethodField()
@@ -37,6 +47,57 @@ class CampaignSerializer(serializers.ModelSerializer):
         return 0
     def get_roas(self, obj):
         return 0
+
+class CampaignSerializer(serializers.ModelSerializer):
+    platforms = serializers.SerializerMethodField()
+    matrics = serializers.SerializerMethodField()
+    ads = serializers.SerializerMethodField()
+    audience_targeting = serializers.SerializerMethodField()
+    ai_insights = serializers.SerializerMethodField()
+    total_budget = serializers.SerializerMethodField()
+    total_spent = serializers.SerializerMethodField()
+    remaining_budget = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UnifiedCampaign
+        fields = ['id', 'name', 'objective', 'platforms', 'matrics', 'ads', 'audience_targeting', 'status', 'created_at', 'ai_insights', 'total_budget', 'total_spent', 'remaining_budget']
+
+    def get_platforms(self, obj):
+        return [pc.integration.platform for pc in obj.platform_campaigns.all()]
+
+    def get_matrics(self, obj):
+        analysis = AnalysisDaily.objects.filter(unified_campaign=obj)
+        analysis = get_performance_matrics(analysis)
+        return analysis
+
+    def get_ads(self, obj):
+        ads = []
+        for pc in obj.platform_campaigns.all():
+            for ad_group in pc.ad_groups.all():
+                ads.extend(ad_group.ads.all())
+        return PlatformAdSerializer(ads, many=True).data       
+
+    def get_audience_targeting(self, obj):
+        # TODO: Need to add the proper targeting fields in the model and return them here
+        return {
+            'min_age': 18,
+            'max_age': 65,
+            'gender': 'all',
+            'locations': [],
+            'keywords': '',
+        }
+    
+    def get_ai_insights(self, obj):
+        insights = obj.ai_insights.order_by('-created_at')[:5]
+        return AIInsightSerializer(insights, many=True).data
+    
+    def get_total_budget(self, obj):
+        return 0
+    def get_total_spent(self, obj):
+        return 0
+    def get_remaining_budget(self, obj):
+        return 0
+
 
 class BudgetItemSerializer(serializers.Serializer):
     platform=serializers.CharField()
@@ -153,18 +214,31 @@ class CreateAdSerializer(serializers.Serializer):
         # Use dict() instead of data.copy() to avoid QueryDict.__deepcopy__
         # which fails on file uploads (cannot pickle BufferedRandom)
         data = dict(data.lists()) if hasattr(data, 'lists') else data.copy()
-        # Flatten single-value lists from QueryDict
-        data = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in data.items()}
+        # Fields that must remain as lists even with a single value
+        list_fields = {'platforms', 'locations', 'budgets'}
+        # Flatten single-value lists from QueryDict, except list fields
+        data = {
+            k: v if k in list_fields else (v[0] if isinstance(v, list) and len(v) == 1 else v)
+            for k, v in data.items()
+        }
 
-        platforms = data.get("platforms")
-
-        if isinstance(platforms, str):
-            try:
-                data["platforms"] = json.loads(platforms)
-            except json.JSONDecodeError:
-                raise serializers.ValidationError({
-                    "platforms": "Invalid JSON array"
-                })
+        # Parse JSON-encoded strings for list fields (multipart/form-data)
+        for field_name in list_fields:
+            value = data.get(field_name)
+            if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+                try:
+                    parsed = json.loads(value[0])
+                    if isinstance(parsed, list):
+                        data[field_name] = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            elif isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        data[field_name] = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
         return super().to_internal_value(data)
 

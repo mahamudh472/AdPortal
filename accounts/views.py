@@ -22,6 +22,7 @@ from accounts.serializers import (
 )
 from rest_framework.pagination import PageNumberPagination
 from .models import NotificationSetting, User, OTP, Notification
+from rest_framework.permissions import IsAuthenticated
 
 class RegisterView(GenericAPIView):
     serializer_class = RegisterSerializer
@@ -147,7 +148,7 @@ class PasswordResetConfirmView(GenericAPIView):
 
 class ProfileView(GenericAPIView):
     serializer_class = SimpleUserSerializer
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsAuthenticated]
     def get(self, request):
         user = request.user
         serializer = self.serializer_class(user)
@@ -225,7 +226,7 @@ class ChangePasswordView(GenericAPIView):
 
 
 class LogoutView(GenericAPIView):
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
