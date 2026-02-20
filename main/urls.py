@@ -22,4 +22,7 @@ urlpatterns = [
     path('team-member/<str:id>/', views.UpdateDeleteTeamMemberAPIView.as_view()),
 	path('invite-team-member/', views.TeamInvitationAPIView.as_view()),
     path('accept-invitation/<str:token>/', views.InvitationAcceptAPIView.as_view()),
+
+
+    path('sync-ads/', views.SyncAdsAPIView.as_view()),
 ]

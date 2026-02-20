@@ -1,3 +1,4 @@
+from os import wait
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
 from rest_framework import generics, status
@@ -766,4 +767,23 @@ class IntegrationStatusAPIView(RequiredOrganizationIDMixin, generics.GenericAPIV
                     'status': False,
                     'created_at': None
                 })
+
         return Response({'integrations': integrations}, status=status.HTTP_200_OK)
+
+class SyncAdsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        platform = request.query_params.get('platform')
+        print("Syncing ads for platform:", platform)
+        if not platform or platform.upper() not in ['META', 'GOOGLE', 'TIKTOK']:
+            return Response({'error': 'Invalid or missing platform. Supported platforms are META, GOOGLE, TIKTOK.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+            # TODO: Implement the logic to sync ads from connected platforms. This would involve calling the respective platform APIs, fetching the latest ad data, and updating our database accordingly. For now, we will just return a success message.
+        # sync_meta_ads()
+        return Response({'message': f'Ad sync initiated successfully for {platform.capitalize()} ads.'}, status=status.HTTP_200_OK)
+
