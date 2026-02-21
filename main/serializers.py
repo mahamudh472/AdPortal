@@ -1,6 +1,7 @@
 from accounts.serializers import SimpleUserSerializer
 from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight, Ad
 from rest_framework import serializers
+from django.db import models
 import json
 from finance.models import Payment
 from analysis.models import AnalysisDaily
@@ -29,24 +30,34 @@ class TempCampaignSerializer(serializers.ModelSerializer):
         model = UnifiedCampaign
         fields = '__all__'
 
-    # TODO: Need to add required for frontend
-    # TODO : Implement the methods to calculate the metrics
     def get_platforms(self, obj):
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]
+
     def get_total_budget(self, obj):
-        return 0
+        raw = getattr(obj, '_total_budget', 0) or 0
+        return round(raw / 100, 2)
+
     def get_total_spent(self, obj):
-        return 0
+        return round(getattr(obj, '_total_spent', 0) or 0, 2)
+
     def get_impressions(self, obj):
-        return 0
+        return getattr(obj, '_impressions', 0) or 0
+
     def get_clicks(self, obj):
-        return 0
+        return getattr(obj, '_clicks', 0) or 0
+
     def get_conversions(self, obj):
-        return 0
+        return getattr(obj, '_conversions', 0) or 0
+
     def get_ctr(self, obj):
-        return 0
+        impressions = getattr(obj, '_impressions', 0) or 0
+        clicks = getattr(obj, '_clicks', 0) or 0
+        return round((clicks / impressions * 100), 2) if impressions > 0 else 0
+
     def get_roas(self, obj):
-        return 0
+        spend = getattr(obj, '_total_spent', 0) or 0
+        weighted_roas = getattr(obj, '_weighted_roas', 0) or 0
+        return round((weighted_roas / spend), 2) if spend > 0 else 0
 
 class CampaignSerializer(serializers.ModelSerializer):
     platforms = serializers.SerializerMethodField()
@@ -92,11 +103,22 @@ class CampaignSerializer(serializers.ModelSerializer):
         return AIInsightSerializer(insights, many=True).data
     
     def get_total_budget(self, obj):
-        return 0
+        from main.models import CampaignBudget
+        total = CampaignBudget.objects.filter(campaign=obj).aggregate(
+            total=models.Sum('daily_budget_minor')
+        )['total']
+        return round((total or 0) / 100, 2)
+
     def get_total_spent(self, obj):
-        return 0
+        spent = AnalysisDaily.objects.filter(unified_campaign=obj).aggregate(
+            total=models.Sum('spend')
+        )['total']
+        return round(spent, 2) if spent else 0
+
     def get_remaining_budget(self, obj):
-        return 0
+        total_budget = self.get_total_budget(obj)
+        total_spent = self.get_total_spent(obj)
+        return round(total_budget - total_spent, 2)
 
 
 class BudgetItemSerializer(serializers.Serializer):

@@ -20,6 +20,8 @@ class AnalysisDaily(models.Model):
     cpa = models.FloatField(default=0)  # Cost Per Acquisition
     roas = models.FloatField()  # Return on Ad Spend
     device_breakdown = models.JSONField(blank=True, null=True)  # e.g., {"mobile": {...}, "desktop": {...}}
+    budget_type = models.CharField(max_length=20, blank=True, null=True)
+    budget_amount = models.FloatField(blank=True, null=True)
     class Meta:
         unique_together = ('platform', 'account_id', 'campaign_id', 'adgroup_id', 'date')
 

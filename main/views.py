@@ -106,11 +106,43 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
     filterset_fields = ['status']
 
     def get_queryset(self):
+        from django.db.models import Sum, F, FloatField, Subquery, OuterRef, ExpressionWrapper
+        from django.db.models.functions import Coalesce
+        from analysis.models import AnalysisDaily
+
         org_snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        queryset = UnifiedCampaign.objects.filter(organization=organization).order_by('-created_at')
+
+        # Subquery for total budget to avoid cartesian product with daily_analyses
+        budget_subquery = CampaignBudget.objects.filter(
+            campaign=OuterRef('pk')
+        ).values('campaign').annotate(
+            total=Sum('daily_budget_minor')
+        ).values('total')
+
+        queryset = UnifiedCampaign.objects.filter(
+            organization=organization
+        ).annotate(
+            _total_budget=Coalesce(Subquery(budget_subquery), 0),
+            _total_spent=Coalesce(
+                Sum('daily_analyses__spend'), 0.0, output_field=FloatField()
+            ),
+            _impressions=Coalesce(Sum('daily_analyses__impressions'), 0),
+            _clicks=Coalesce(Sum('daily_analyses__clicks'), 0),
+            _conversions=Coalesce(Sum('daily_analyses__conversions'), 0),
+            _weighted_roas=Coalesce(
+                Sum(ExpressionWrapper(
+                    F('daily_analyses__roas') * F('daily_analyses__spend'),
+                    output_field=FloatField()
+                )),
+                0.0, output_field=FloatField()
+            ),
+        ).prefetch_related(
+            'platform_campaigns__integration'
+        ).order_by('-created_at')
+
         return queryset
 
 class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateDestroyAPIView):
@@ -345,7 +377,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 {
                     'platform': b.platform,
                     'budget_type': b.budget_type,
-                    'budget': b.daily_budget_minor,
+                    'budget': round(b.daily_budget_minor / 100, 2),
                     'start_date': b.start_date.isoformat() if b.start_date else None,
                     'end_date': b.end_date.isoformat() if b.end_date else None,
                     'run_continuously': b.run_continuously,
@@ -505,6 +537,7 @@ class AIInsightListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
         return queryset
 
 
+from .utils.meta_engine.analysis import generate_meta_campaign_analysis
 @extend_schema(
     parameters=[
         OpenApiParameter(
@@ -516,7 +549,6 @@ class AIInsightListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
         )
     ]
 )
-
 class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
@@ -525,8 +557,11 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        data = get_analytics_data(organization.snowflake_id)
-        return Response(data, status=status.HTTP_200_OK)
+        integration = organization.integrations.filter(platform='META').first()
+        campaign_ids = integration.platform_campaigns.values_list('platform_campaign_id', flat=True) if integration else []
+        print("Generating analysis for campaigns:", campaign_ids)
+        data = generate_meta_campaign_analysis(integration, platform_campaign_ids=campaign_ids)
+        return Response({"success": "Generating analysis."}, status=status.HTTP_200_OK)
 
 @extend_schema(
     parameters=[

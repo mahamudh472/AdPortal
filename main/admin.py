@@ -3,7 +3,8 @@ from .models import (
     Organization, OrganizationMember,
     UnifiedCampaign, AdIntegration, 
     PlatformCampaign, UnifiedObjective, UnifiedStatus, 
-    AdGroup, Ad, AdAsset, IntegrationSyncState
+    AdGroup, Ad, AdAsset, IntegrationSyncState,
+    CampaignBudget
 )
 
 @admin.register(Organization)
@@ -31,7 +32,7 @@ admin.site.register(AdGroup)
 admin.site.register(Ad)
 admin.site.register(AdAsset)
 admin.site.register(IntegrationSyncState)
-
+admin.site.register(CampaignBudget)
 
 # @admin.register(AdGroup)
 # class AdGroupAdmin(admin.ModelAdmin):

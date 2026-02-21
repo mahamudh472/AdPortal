@@ -1,3 +1,6 @@
+import logging
+from datetime import date
+
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -15,6 +18,8 @@ from main.models import (
     Ad,
     IntegrationSyncState,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -137,24 +142,81 @@ def upsert_campaigns(meta_campaigns, integration):
             platform_campaign.save()
 
         # -------------------------------------------------
-        # Budget (safe)
+        # Budget — campaign-level (CBO campaigns)
         # -------------------------------------------------
-        if meta_campaign.get("daily_budget"):
-
-            CampaignBudget.objects.update_or_create(
-                campaign=platform_campaign.unified_campaign,
-                platform=integration.platform,
-                defaults={
-                    "budget_type": "DAILY",
-                    "daily_budget_minor": int(meta_campaign["daily_budget"]),
-                    "start_date": meta_campaign.get("start_time")[:10],
-                    "run_continuously": not meta_campaign.get("stop_time"),
-                }
-            )
+        _upsert_budget_from_meta(
+            unified_campaign=platform_campaign.unified_campaign,
+            platform=integration.platform,
+            daily_budget=meta_campaign.get("daily_budget"),
+            lifetime_budget=meta_campaign.get("lifetime_budget"),
+            start_time=meta_campaign.get("start_time"),
+            stop_time=meta_campaign.get("stop_time"),
+            source="campaign",
+        )
 
         platform_campaigns.append(platform_campaign)
 
     return platform_campaigns
+
+
+# ============================================================
+# BUDGET HELPER
+# ============================================================
+
+def _upsert_budget_from_meta(
+    unified_campaign,
+    platform,
+    daily_budget,
+    lifetime_budget,
+    start_time,
+    stop_time,
+    source="campaign",
+):
+    """Create / update a CampaignBudget from Meta budget fields.
+
+    Works for both campaign-level (CBO) and ad-set-level (ABO) budgets.
+    Skips silently when neither daily nor lifetime budget is present.
+    """
+    # Meta returns budget values as strings; filter out None / "0" / empty
+    daily_val = int(daily_budget) if daily_budget and str(daily_budget) != "0" else 0
+    lifetime_val = int(lifetime_budget) if lifetime_budget and str(lifetime_budget) != "0" else 0
+
+    if not daily_val and not lifetime_val:
+        logger.debug(
+            "Skipping budget upsert for %s (%s) — no budget value from %s.",
+            unified_campaign, platform, source,
+        )
+        return
+
+    budget_defaults = {
+        "start_date": start_time[:10] if start_time else date.today(),
+        "run_continuously": not stop_time,
+    }
+
+    if stop_time:
+        budget_defaults["end_date"] = stop_time[:10]
+
+    if daily_val:
+        budget_defaults["budget_type"] = "DAILY"
+        budget_defaults["daily_budget_minor"] = daily_val
+    else:
+        budget_defaults["budget_type"] = "LIFETIME"
+        budget_defaults["daily_budget_minor"] = lifetime_val
+
+    obj, created = CampaignBudget.objects.update_or_create(
+        campaign=unified_campaign,
+        platform=platform,
+        defaults=budget_defaults,
+    )
+    logger.info(
+        "Budget %s for campaign %s [%s] from %s: %s %s",
+        "created" if created else "updated",
+        unified_campaign,
+        platform,
+        source,
+        budget_defaults.get("budget_type"),
+        budget_defaults.get("daily_budget_minor"),
+    )
 
 
 # ============================================================
@@ -167,6 +229,7 @@ def sync_adsets(platform_campaigns):
 
     for platform_campaign in platform_campaigns:
 
+        unified_campaign = platform_campaign.unified_campaign
         campaign = Campaign(platform_campaign.platform_campaign_id)
 
         adsets = campaign.get_ad_sets(fields=[
@@ -174,10 +237,17 @@ def sync_adsets(platform_campaigns):
             "name",
             "status",
             "daily_budget",
+            "lifetime_budget",
             "targeting",
             "start_time",
             "end_time",
         ])
+
+        # Track whether we already have a campaign-level budget
+        has_campaign_budget = CampaignBudget.objects.filter(
+            campaign=unified_campaign,
+            platform=platform_campaign.integration.platform,
+        ).exists()
 
         for adset in adsets:
             targeting = adset.get("targeting")
@@ -197,6 +267,25 @@ def sync_adsets(platform_campaigns):
                     "last_synced_at": timezone.now(),
                 }
             )
+
+            # If no campaign-level budget exists, use the ad-set budget (ABO)
+            if not has_campaign_budget:
+                _upsert_budget_from_meta(
+                    unified_campaign=unified_campaign,
+                    platform=platform_campaign.integration.platform,
+                    daily_budget=adset.get("daily_budget"),
+                    lifetime_budget=adset.get("lifetime_budget"),
+                    start_time=adset.get("start_time"),
+                    stop_time=adset.get("end_time"),
+                    source="adset",
+                )
+                # After first successful upsert, mark as having a budget
+                # so we don't overwrite with a different adset's budget
+                if CampaignBudget.objects.filter(
+                    campaign=unified_campaign,
+                    platform=platform_campaign.integration.platform,
+                ).exists():
+                    has_campaign_budget = True
 
             all_adgroups.append(ad_group)
 
