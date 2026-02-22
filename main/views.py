@@ -821,3 +821,131 @@ class SyncAdsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             sync_ads_task.delay(integration.id)
         return Response({'message': 'Ad sync initiated successfully'}, status=status.HTTP_200_OK)
 
+
+# ════════════════════════════════════════════════════════════
+#  META AD MANAGEMENT — TEST ENDPOINTS
+# ════════════════════════════════════════════════════════════
+
+class MetaCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST {org_id, campaign_id, ?ad_asset_id}"""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        from main.utils.meta_engine.manage_ad import create_ad_on_meta, MetaAdCreationError
+
+        campaign_id = request.data.get('campaign_id')
+        ad_asset_id = request.data.get('ad_asset_id')
+
+        if not campaign_id:
+            return Response(
+                {'error': 'campaign_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ad_asset = None
+        if ad_asset_id:
+            ad_asset = AdAsset.objects.filter(id=ad_asset_id).first()
+
+        try:
+            local_ad = create_ad_on_meta(
+                unified_campaign_id=int(campaign_id),
+                ad_asset=ad_asset,
+            )
+            return Response({
+                'message': 'Meta ad created successfully.',
+                'ad_id': local_ad.id,
+                'platform_ad_id': local_ad.platform_ad_id,
+                'ad_name': local_ad.name,
+            }, status=status.HTTP_201_CREATED)
+        except MetaAdCreationError as exc:
+            return Response({
+                'error': str(exc),
+                'stage': exc.stage,
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class MetaUpdateCampaignTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST {org_id, campaign_id, ?ad_asset_id}"""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        from main.utils.meta_engine.manage_ad import update_campaign_on_meta
+
+        campaign_id = request.data.get('campaign_id')
+        ad_asset_id = request.data.get('ad_asset_id')
+
+        if not campaign_id:
+            return Response(
+                {'error': 'campaign_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ad_asset = None
+        if ad_asset_id:
+            ad_asset = AdAsset.objects.filter(id=ad_asset_id).first()
+
+        try:
+            result = update_campaign_on_meta(
+                unified_campaign_id=int(campaign_id),
+                ad_asset=ad_asset,
+            )
+            # result is either an Ad (if fallback to create) or None
+            data = {'message': 'Meta campaign updated successfully.'}
+            if result:
+                data['ad_id'] = result.id
+                data['platform_ad_id'] = result.platform_ad_id
+            return Response(data, status=status.HTTP_200_OK)
+        except Exception as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class MetaDeleteAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST {org_id, campaign_id, ?delete_level}"""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        from main.utils.meta_engine.manage_ad import delete_ad_on_meta
+
+        campaign_id = request.data.get('campaign_id')
+        delete_level = request.data.get('delete_level', 'CAMPAIGN').upper()
+
+        if not campaign_id:
+            return Response(
+                {'error': 'campaign_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if delete_level not in ('CAMPAIGN', 'ADSET', 'AD'):
+            return Response(
+                {'error': 'delete_level must be CAMPAIGN, ADSET, or AD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            errors = delete_ad_on_meta(
+                unified_campaign_id=int(campaign_id),
+                delete_level=delete_level,
+            )
+            if errors:
+                return Response({
+                    'message': f'Deletion completed with {len(errors)} error(s).',
+                    'errors': errors,
+                }, status=status.HTTP_207_MULTI_STATUS)
+            return Response(
+                {'message': f'Meta {delete_level.lower()} deleted successfully.'},
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+

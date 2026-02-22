@@ -108,6 +108,9 @@ class AdIntegration(models.Model):
     # The external Ad Account ID (e.g., act_12345678 or 758264...)
     ad_account_id = models.CharField(max_length=100, null=True, blank=True)
     
+    # Facebook Page ID (Meta only — required for ad creatives)
+    page_id = models.CharField(max_length=100, null=True, blank=True)
+    
     # Auth Tokens
     access_token = models.TextField()
     refresh_token = models.TextField(null=True, blank=True)

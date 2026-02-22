@@ -47,6 +47,25 @@ def fetch_meta_ads_account(organization):
     return None
 
 
+def fetch_meta_pages(organization):
+    """Fetch Facebook Pages the user manages (requires pages_show_list scope)."""
+    ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META).first()
+    if not ad_profile:
+        return None
+
+    access_token = ad_profile.access_token
+    pages = requests.get(
+        "https://graph.facebook.com/v18.0/me/accounts",
+        params={
+            "access_token": access_token,
+            "fields": "id,name,category,picture",
+        },
+    ).json()
+
+    data = pages.get("data", [])
+    return {"data": data}
+
+
 def fetch_google_ads_account(organization):
     ad_profile = AdIntegration.objects.filter(
         organization=organization,
@@ -89,7 +108,7 @@ class MetaConnect(RequiredOrganizationIDMixin, APIView):
         params = {
             'client_id': settings.META_APP_ID,
             'redirect_uri': settings.META_REDIRECT_URI,
-            "scope": "ads_read,ads_management,business_management",
+            "scope": "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement",
             "response_type": "code",
             'state': state
         }
@@ -396,3 +415,44 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
         return Response({"success": "Ad account selected."})
 
 
+class MetaPageListView(RequiredOrganizationIDMixin, APIView):
+    """GET — List Facebook Pages the user manages (for selecting page_id)."""
+    permission_classes = [IsRegularPlatformUser]
+
+    def get(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        pages = fetch_meta_pages(organization)
+        if pages is None:
+            return Response({'error': 'Meta integration not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(pages)
+
+
+class SelectMetaPageView(RequiredOrganizationIDMixin, APIView):
+    """POST {page_id} — Store the selected Facebook Page ID on the Meta integration."""
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request, *args, **kwargs):
+        page_id = request.data.get('page_id')
+        if not page_id:
+            return Response({'error': 'page_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        integration = AdIntegration.objects.filter(
+            organization=organization, platform=Platform.META
+        ).first()
+        if not integration:
+            return Response({'error': 'Meta integration not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        integration.page_id = str(page_id)
+        integration.save(update_fields=["page_id"])
+
+        return Response({"success": "Facebook Page selected.", "page_id": integration.page_id})

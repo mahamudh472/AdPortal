@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .integration_handler import AdProfileListView, SelectAdProfileView
+from .integration_handler import AdProfileListView, SelectAdProfileView, MetaPageListView, SelectMetaPageView
 
 urlpatterns = [
     path('dashboard/', views.DashboardAPIView.as_view()),
@@ -12,6 +12,8 @@ urlpatterns = [
     path('update-ad/', views.CreateAdAPIView.as_view()),
 	path('get-ad-profiles/', AdProfileListView.as_view()),
 	path('select-ad-profile/', SelectAdProfileView.as_view()),
+	path('get-meta-pages/', MetaPageListView.as_view()),
+	path('select-meta-page/', SelectMetaPageView.as_view()),
 	path('generate-ai-copy/', views.AICopyGeneratorAPIView.as_view()),
     path('generate-ad-copy/', views.AIAdCopyGeneratorAPIView.as_view()),
     path('ai-insights/', views.AIInsightListAPIView.as_view()),
@@ -25,4 +27,9 @@ urlpatterns = [
 
 
     path('sync-ads/', views.SyncAdsAPIView.as_view()),
+
+    # Meta ad management — test endpoints
+    path('meta/create-ad/', views.MetaCreateAdTestAPIView.as_view()),
+    path('meta/update-campaign/', views.MetaUpdateCampaignTestAPIView.as_view()),
+    path('meta/delete-ad/', views.MetaDeleteAdTestAPIView.as_view()),
 ]
