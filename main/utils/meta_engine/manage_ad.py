@@ -91,6 +91,44 @@ def _optimization_goal(unified_objective: str) -> str:
 
 
 # ────────────────────────────────────────────────────────────
+# CTA MAPPING  (internal / legacy → valid Meta CTA)
+# ────────────────────────────────────────────────────────────
+
+CTA_TO_META = {
+    "READ_MORE":       "LEARN_MORE",
+    "GET_STARTED":     "LEARN_MORE",
+    "FIND_OUT_MORE":   "LEARN_MORE",
+    "BUY":             "BUY_NOW",
+    "PURCHASE":        "BUY_NOW",
+    "REGISTER":        "SIGN_UP",
+    "SIGNUP":          "SIGN_UP",
+    "SIGN_UP":         "SIGN_UP",
+    "BOOK":            "BOOK_NOW",
+    "CALL":            "CALL_NOW",
+    "DOWNLOAD":        "DOWNLOAD",
+    "LEARN_MORE":      "LEARN_MORE",
+    "SHOP_NOW":        "SHOP_NOW",
+    "CONTACT_US":      "CONTACT_US",
+    "SUBSCRIBE":       "SUBSCRIBE",
+    "APPLY_NOW":       "APPLY_NOW",
+    "GET_QUOTE":       "GET_QUOTE",
+    "ORDER_NOW":       "ORDER_NOW",
+    "SEND_MESSAGE":    "MESSAGE_PAGE",
+    "WHATSAPP":        "WHATSAPP_MESSAGE",
+    "WATCH_VIDEO":     "WATCH_VIDEO",
+    "GET_DIRECTIONS":  "GET_DIRECTIONS",
+    "SEE_MENU":        "SEE_MENU",
+    "LISTEN_NOW":      "LISTEN_NOW",
+}
+
+
+def _normalize_cta(raw_cta: str) -> str:
+    """Convert an internal CTA value to a valid Meta API call_to_action type."""
+    key = raw_cta.upper().replace(" ", "_").strip()
+    return CTA_TO_META.get(key, key)
+
+
+# ────────────────────────────────────────────────────────────
 # ASSET UPLOAD HELPER
 # ────────────────────────────────────────────────────────────
 
@@ -391,7 +429,7 @@ def create_ad_on_meta(
         "name": headline,
         "description": description,
         "call_to_action": {
-            "type": cta.upper().replace(" ", "_"),
+            "type": _normalize_cta(cta),
             "value": {"link": destination_url},
         },
     }
@@ -614,7 +652,7 @@ def _create_or_update_creative(
         "name": local_ad.headline or "",
         "description": local_ad.description or "",
         "call_to_action": {
-            "type": (local_ad.call_to_action or "LEARN_MORE").upper().replace(" ", "_"),
+            "type": _normalize_cta(local_ad.call_to_action or "LEARN_MORE"),
             "value": {"link": local_ad.destination_url or ""},
         },
     }

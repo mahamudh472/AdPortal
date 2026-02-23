@@ -73,6 +73,8 @@ class Organization(models.Model):
         if not self.snowflake_id:
             self.snowflake_id = next(generator)
         super().save(*args, **kwargs)
+    def __str__(self):
+        return self.name or f"Organization {self.snowflake_id}"
 
 class OrganizationMember(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, blank=True, null=True)

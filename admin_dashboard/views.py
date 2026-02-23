@@ -2,9 +2,9 @@ from rest_framework import generics
 from rest_framework import permissions
 from rest_framework.response import Response
 from accounts.models import User
-from main.models import Platform, UnifiedCampaign, PlatformCampaign
+from main.models import UnifiedCampaign, PlatformCampaign, Organization, OrganizationMember
 from rest_framework.permissions import IsAdminUser
-from main.serializers import CampaignSerializer
+from main.serializers import CampaignSerializer, OrganizationSerializer
 from rest_framework.pagination import PageNumberPagination
 from .serializers import UserAdminViewSerializer
 from django.db.models import Q
@@ -45,7 +45,7 @@ class DashboardAPIView(generics.GenericAPIView):
 		google_campaigns = campaings.filter(integration__platform='GOOGLE').count()
 		tiktok_campaigns = campaings.filter(integration__platform='TIKTOK').count()
 
-		recent_campaigns = campaings.order_by('-created_at')[:5]
+		recent_campaigns = UnifiedCampaign.objects.order_by('-created_at')[:5]
 
 		return Response(
 				{
@@ -124,7 +124,21 @@ class UserManagementListAPIView(generics.ListAPIView):
 		q = self.request.query_params.get('search', '')
 		if q!='':
 			return User.objects.filter(
-				Q(email__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
+				Q(email__icontains=q) | Q(full_name__icontains=q)
 				)
 		return User.objects.all()
 
+class OrganizationListPagination(PageNumberPagination):
+    max_page_size = 100
+    page_size = 10
+
+class OrganizationListAPIView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = OrganizationListPagination
+    serializer_class = OrganizationSerializer
+
+    def get_queryset(self):
+        q = self.request.query_params.get('search', '')
+        if q != '':
+            return Organization.objects.filter(name__icontains=q)
+        return Organization.objects.all()

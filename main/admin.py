@@ -4,7 +4,7 @@ from .models import (
     UnifiedCampaign, AdIntegration, 
     PlatformCampaign, UnifiedObjective, UnifiedStatus, 
     AdGroup, Ad, AdAsset, IntegrationSyncState,
-    CampaignBudget
+    CampaignBudget, AIInsight
 )
 
 @admin.register(Organization)
@@ -41,4 +41,6 @@ admin.site.register(CampaignBudget)
 #     list_filter = ('campaign',)
 #     date_hierarchy = 'campaign__created_at'
 
-
+@admin.register(AIInsight)
+class AIInsightAdmin(admin.ModelAdmin):
+    pass

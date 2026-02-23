@@ -48,22 +48,42 @@ def fetch_meta_ads_account(organization):
 
 
 def fetch_meta_pages(organization):
-    """Fetch Facebook Pages the user manages (requires pages_show_list scope)."""
+    """
+    Fetch Facebook Pages via the Business API (/{business_id}/owned_pages).
+    Uses business_management permission — no pages_show_list needed.
+    """
     ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META).first()
     if not ad_profile:
         return None
 
     access_token = ad_profile.access_token
-    pages = requests.get(
-        "https://graph.facebook.com/v18.0/me/accounts",
-        params={
-            "access_token": access_token,
-            "fields": "id,name,category,picture",
-        },
+
+    # Get all businesses the user manages
+    biz_res = requests.get(
+        "https://graph.facebook.com/v18.0/me/businesses",
+        params={"access_token": access_token},
     ).json()
 
-    data = pages.get("data", [])
-    return {"data": data}
+    all_pages = []
+    seen_ids = set()
+
+    for biz in biz_res.get("data", []):
+        pages_res = requests.get(
+            f"https://graph.facebook.com/v18.0/{biz['id']}/owned_pages",
+            params={
+                "access_token": access_token,
+                "fields": "id,name,category,picture",
+            },
+        ).json()
+
+        for page in pages_res.get("data", []):
+            if page["id"] not in seen_ids:
+                page["business_name"] = biz.get("name")
+                page["business_id"] = biz.get("id")
+                all_pages.append(page)
+                seen_ids.add(page["id"])
+
+    return {"data": all_pages}
 
 
 def fetch_google_ads_account(organization):
@@ -110,6 +130,7 @@ class MetaConnect(RequiredOrganizationIDMixin, APIView):
             'redirect_uri': settings.META_REDIRECT_URI,
             "scope": "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement",
             "response_type": "code",
+            "auth_type": "rerequest",
             'state': state
         }
         url = "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
