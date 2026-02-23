@@ -51,7 +51,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
-    'silk',
+    # 'silk',  # disabled — django-silk 5.4.3 incompatible with Django 6.0
     'channels',
     'drf_spectacular',
     'django_extensions'
@@ -66,7 +66,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'silk.middleware.SilkyMiddleware'
+    # 'silk.middleware.SilkyMiddleware'  # disabled — incompatible with Django 6.0
 ]
 
 ROOT_URLCONF = 'AdPortal.urls'

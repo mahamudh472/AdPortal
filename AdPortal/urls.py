@@ -35,7 +35,7 @@ urlpatterns = [
     path('api/v1/auth/google/connect/', GoogleConnect.as_view()),
     path('api/v1/auth/google/callback/', GoogleCallback.as_view()),
 
-    path('silk/', include('silk.urls', namespace='silk')),
+    # path('silk/', include('silk.urls', namespace='silk')),  # disabled — incompatible with Django 6.0
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 

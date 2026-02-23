@@ -818,8 +818,54 @@ class SyncAdsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             return Response({'error': 'No platform integrations found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
         
         for integration in integrations:
+            if integration.platform.upper() == 'GOOGLE':
+                continue
             sync_ads_task.delay(integration.id)
         return Response({'message': 'Ad sync initiated successfully'}, status=status.HTTP_200_OK)
+
+
+class SyncAnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST {org_id, ?platform, ?start_date, ?end_date} — trigger analytics sync."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        from main.tasks import sync_analytics_task
+
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+
+        platform_filter = request.data.get('platform', '').upper()
+        start_date = request.data.get('start_date')  # "YYYY-MM-DD"
+        end_date = request.data.get('end_date')        # "YYYY-MM-DD"
+
+        integrations = organization.integrations.filter(is_active=True)
+        if platform_filter:
+            integrations = integrations.filter(platform=platform_filter)
+
+        if not integrations.exists():
+            return Response(
+                {'error': 'No active integrations found.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dispatched = 0
+        for integration in integrations:
+            if integration.platform.upper() == 'GOOGLE':
+                continue
+            sync_analytics_task.delay(integration.id, start_date, end_date)
+            dispatched += 1
+
+        if dispatched == 0:
+            return Response(
+                {'error': 'No supported integrations found (Google analytics not yet supported).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            'message': f'Analytics sync initiated for {dispatched} integration(s).',
+        }, status=status.HTTP_200_OK)
 
 
 # ════════════════════════════════════════════════════════════

@@ -27,6 +27,7 @@ urlpatterns = [
 
 
     path('sync-ads/', views.SyncAdsAPIView.as_view()),
+    path('sync-analytics/', views.SyncAnalyticsAPIView.as_view()),
 
     # Meta ad management — test endpoints
     path('meta/create-ad/', views.MetaCreateAdTestAPIView.as_view()),

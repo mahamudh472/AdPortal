@@ -11,6 +11,7 @@ from main.mixins import RequiredOrganizationIDMixin
 from main.models import AdIntegration, Platform, Organization
 from rest_framework import status
 from main.mixins import RequiredOrganizationIDMixin
+from django.shortcuts import redirect
 
 from main.utils.google_oauth import generate_oauth_state, validate_oauth_state
 
@@ -197,11 +198,12 @@ class MetaCallback(APIView):
             }
         )
 
-        return Response({
-            "success": True,
-            "created": created,
-            "account_name": me.get('name')
-        })
+        # return Response({
+        #     "success": True,
+        #     "created": created,
+        #     "account_name": me.get('name')
+        # })
+        return redirect(settings.FRONTEND_URL+"/meta-auth-callback")
 
 class TikTokConnect(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
