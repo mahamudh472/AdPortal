@@ -31,6 +31,8 @@ class TempCampaignSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_platforms(self, obj):
+        if obj.status == 'DRAFT':
+            return (obj.draft_data or {}).get('platforms') or []
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]
 
     def get_total_budget(self, obj):
@@ -68,12 +70,15 @@ class CampaignSerializer(serializers.ModelSerializer):
     total_budget = serializers.SerializerMethodField()
     total_spent = serializers.SerializerMethodField()
     remaining_budget = serializers.SerializerMethodField()
+    budgets = serializers.SerializerMethodField()
 
     class Meta:
         model = UnifiedCampaign
-        fields = ['id', 'name', 'objective', 'platforms', 'matrics', 'ads', 'audience_targeting', 'status', 'created_at', 'ai_insights', 'total_budget', 'total_spent', 'remaining_budget']
+        fields = ['id', 'name', 'objective', 'platforms', 'matrics', 'ads', 'audience_targeting', 'status', 'created_at', 'ai_insights', 'total_budget', 'total_spent', 'remaining_budget', 'budgets']
 
     def get_platforms(self, obj):
+        if obj.status == 'DRAFT':
+            return (obj.draft_data or {}).get('platforms') or []
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]
 
     def get_matrics(self, obj):
@@ -89,15 +94,45 @@ class CampaignSerializer(serializers.ModelSerializer):
         return PlatformAdSerializer(ads, many=True).data       
 
     def get_audience_targeting(self, obj):
-        # TODO: Need to add the proper targeting fields in the model and return them here
-        return {
+        defaults = {
             'min_age': 18,
             'max_age': 65,
             'gender': 'all',
             'locations': [],
             'keywords': '',
         }
+        targeting_fields = list(defaults.keys())
+
+        if obj.status == 'DRAFT':
+            draft = obj.draft_data or {}
+            return {k: draft.get(k, defaults[k]) for k in targeting_fields}
+
+        # For live campaigns, pull from the first ad group's targeting_config
+        for pc in obj.platform_campaigns.all():
+            for ag in pc.ad_groups.all():
+                config = ag.targeting_config or {}
+                if any(k in config for k in targeting_fields):
+                    return {k: config.get(k, defaults[k]) for k in targeting_fields}
+
+        return defaults
     
+    def get_budgets(self, obj):
+        if obj.status == 'DRAFT':
+            return (obj.draft_data or {}).get('budgets') or []
+        from main.models import CampaignBudget
+        budgets = CampaignBudget.objects.filter(campaign=obj)
+        return [
+            {
+                'platform': b.platform,
+                'budget_type': b.budget_type,
+                'budget': round(b.daily_budget_minor / 100, 2),
+                'start_date': b.start_date.isoformat() if b.start_date else None,
+                'end_date': b.end_date.isoformat() if b.end_date else None,
+                'run_continuously': b.run_continuously,
+            }
+            for b in budgets
+        ]
+
     def get_ai_insights(self, obj):
         insights = obj.ai_insights.order_by('-created_at')[:5]
         return AIInsightSerializer(insights, many=True).data
@@ -161,6 +196,8 @@ class SimpleCampaignSerializer(serializers.ModelSerializer):
         model = UnifiedCampaign
         fields = ['id', 'name', 'status', 'platforms', 'created_at', 'spend', 'performance']
     def get_platforms(self, obj):
+        if obj.status == 'DRAFT':
+            return (obj.draft_data or {}).get('platforms') or []
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]
     def get_spend(self, obj):
         return 0

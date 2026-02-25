@@ -361,7 +361,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         }
 
         if campaign.status == 'DRAFT':
-            response.update(campaign.draft_data or {})
+            draft = campaign.draft_data or {}
+            response.update(draft)
+            # Always include platforms as a list, falling back to [] when not yet set
+            response['platforms'] = draft.get('platforms') or []
         else:
             # Read the current state from real models
             platform_campaigns = campaign.platform_campaigns.select_related('integration').prefetch_related(
@@ -392,13 +395,11 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 first_ag = first_pc.ad_groups.first()
                 if first_ag:
                     targeting = first_ag.targeting_config or {}
-                    response['targeting'] = {
-                        'min_age': targeting.get('min_age'),
-                        'max_age': targeting.get('max_age'),
-                        'gender': targeting.get('gender'),
-                        'locations': targeting.get('locations'),
-                        'keywords': targeting.get('keywords'),
-                    }
+                    response['min_age'] = targeting.get('min_age')
+                    response['max_age'] = targeting.get('max_age')
+                    response['gender'] = targeting.get('gender')
+                    response['locations'] = targeting.get('locations')
+                    response['keywords'] = targeting.get('keywords')
 
                     first_ad = first_ag.ads.first()
                     if first_ad:

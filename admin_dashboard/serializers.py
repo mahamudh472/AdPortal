@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from accounts.models import User
+from .models import AdminNotificationSettings
 
 class UserAdminViewSerializer(serializers.ModelSerializer):
 	status = serializers.SerializerMethodField()
@@ -12,3 +13,8 @@ class UserAdminViewSerializer(serializers.ModelSerializer):
 		# TODO: Modify for support suspended status
 		return "Active" if obj.is_active else "Inactive"
 
+class AdminNotificationSettingsSerializer(serializers.Serializer):
+    
+    class Meta:
+        model = AdminNotificationSettings
+        fields = "__all__"

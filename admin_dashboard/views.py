@@ -6,11 +6,12 @@ from main.models import UnifiedCampaign, PlatformCampaign, Organization, Organiz
 from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer, OrganizationSerializer
 from rest_framework.pagination import PageNumberPagination
-from .serializers import UserAdminViewSerializer
+from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer
 from django.db.models import Q
 from datetime import timedelta
 from django.utils import timezone
 from .utils import get_percentage, get_last_month_objects_count, get_second_last_month_objects_count
+from .models import AdminNotificationSettings
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -142,3 +143,20 @@ class OrganizationListAPIView(generics.ListAPIView):
         if q != '':
             return Organization.objects.filter(name__icontains=q)
         return Organization.objects.all()
+
+    
+class AdminNotificationSettingsAPIView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = AdminNotificationSettingsSerializer
+
+    def get_object(self):
+        # Each admin will have their own notification settings, so we get or create the settings for the current user
+        obj, created = AdminNotificationSettings.objects.get_or_create(admin=self.request.user)
+        return obj
+    
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Here you can add any additional logic that needs to happen after updating the settings
+        # For example, you might want to send a confirmation email or log the change
+        # For now, we'll just pass
+        pass
