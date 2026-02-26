@@ -55,13 +55,14 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
         if subscription.exists():
             return Response({"message": "Subscription already exists"}, status=status.HTTP_200_OK)
-        
+
         organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
         subscription = Subscription.objects.create(
             organization=organization,
             plan=plan.first(),
             status='incomplete',
         )
+        print(f"Created subscription {subscription.id} for organization {organization_snowflake_id} and plan {plan.first().name}")
 
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -78,14 +79,15 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
                 'quantity': 1
             }],
             mode='subscription',
-            success_url='http://127.0.0.1:8000/success',
-            cancel_url='http://127.0.0.1:8000/cancel',
+            success_url= settings.FRONTEND_URL + '/payment/success',
+            cancel_url= settings.FRONTEND_URL + '/payment/cancel',
             metadata={
                 'plan_id': str(plan.first().id),
                 'organization_id': str(organization_snowflake_id),
+                'subscription_id': str(subscription.id)
             }
         )
-        
+
         return Response({'checkout_url': session.url}, status=status.HTTP_200_OK)
 
 
