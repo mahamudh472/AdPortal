@@ -71,10 +71,15 @@ class CampaignSerializer(serializers.ModelSerializer):
     total_spent = serializers.SerializerMethodField()
     remaining_budget = serializers.SerializerMethodField()
     budgets = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = UnifiedCampaign
-        fields = ['id', 'name', 'objective', 'platforms', 'matrics', 'ads', 'audience_targeting', 'status', 'created_at', 'ai_insights', 'total_budget', 'total_spent', 'remaining_budget', 'budgets']
+        fields = [
+            'id', 'name', 'objective', 'platforms', 'matrics', 'ads', 
+            'audience_targeting', 'status', 'created_at', 'ai_insights', 
+            'total_budget', 'total_spent', 'remaining_budget', 'budgets', 'file_url'
+        ]
 
     def get_platforms(self, obj):
         if obj.status == 'DRAFT':
@@ -155,6 +160,39 @@ class CampaignSerializer(serializers.ModelSerializer):
         total_spent = self.get_total_spent(obj)
         return round(total_budget - total_spent, 2)
 
+    def get_file_url(self, obj):
+        from main.models import AdAsset
+        request = self.context.get('request')
+
+        def build_url(file_field):
+            if request:
+                return request.build_absolute_uri(file_field.url)
+            return file_field.url
+
+        # DRAFT campaigns store the asset id in draft_data
+        if obj.status == 'DRAFT':
+            asset_id = (obj.draft_data or {}).get('ad_asset_id')
+            if not asset_id:
+                return None
+            asset = AdAsset.objects.filter(id=asset_id).first()
+            if asset and asset.file:
+                return build_url(asset.file)
+            return None
+
+        # Published campaigns: traverse the live structure
+        pc = obj.platform_campaigns.first()
+        if not pc:
+            return None
+        ag = pc.ad_groups.first()
+        if not ag:
+            return None
+        ad = ag.ads.first()
+        if not ad:
+            return None
+        asset = ad.assets.first()
+        if not asset or not asset.file:
+            return None
+        return build_url(asset.file)
 
 class BudgetItemSerializer(serializers.Serializer):
     platform=serializers.CharField()
