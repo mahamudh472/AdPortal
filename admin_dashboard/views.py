@@ -129,6 +129,36 @@ class UserManagementListAPIView(generics.ListAPIView):
 				)
 		return User.objects.all()
 
+class ChangeUserStatusAPIView(generics.UpdateAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = UserAdminViewSerializer
+    queryset = User.objects.all()
+    lookup_field = 'id'
+
+    def update(self, request, *args, **kwargs):
+        user = self.get_object()
+        new_status = request.data.get('status', '').lower()
+
+        if new_status not in ['active', 'inactive', 'suspended']:
+            return Response(
+                {"error": "Invalid status. Valid options are: active, inactive, suspended."},
+                status=400,
+            )
+
+        if new_status == 'active':
+            user.is_active = True
+            user.status = 'active'
+        elif new_status == 'inactive':
+            user.is_active = False
+            user.status = 'inactive'
+        elif new_status == 'suspended':
+            user.is_active = False
+            user.status = 'suspended'
+
+        user.save()
+        return Response({"message": f"User status updated to {new_status}."})
+
+
 class OrganizationListPagination(PageNumberPagination):
     max_page_size = 100
     page_size = 10

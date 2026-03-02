@@ -95,6 +95,7 @@ class Subscription(models.Model):
     @property
     def is_active(self):
         return self.status == "active"
+
 class Payment(models.Model):
     STATUS_CHOICES = (
         ("pending", "Pending"),
