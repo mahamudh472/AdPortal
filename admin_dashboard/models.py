@@ -1,5 +1,36 @@
 from django.db import models
 
+
+class AdminReport(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    VALID_METRICS = [
+        'revenue_overview',
+        'revenue_by_plan',
+        'user_growth',
+        'feature_usage',
+        'monthly_revenue',
+        'mrr_growth',
+        'total_transactions',
+        'failed_payments',
+    ]
+
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    file = models.FileField(upload_to='reports/admin/', blank=True, null=True)
+    report_type = models.CharField(max_length=50)  # weekly, monthly, quarterly, custom
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    included_metrics = models.JSONField(default=list, blank=True)
+    start_date = models.DateField(blank=True, null=True)
+    end_date = models.DateField(blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+
+
 class AdminNotificationSettings(models.Model):
     admin = models.OneToOneField('accounts.User', on_delete=models.CASCADE, related_name='admin_notification_settings', blank=True, null=True)
     new_user_signup = models.BooleanField(default=True)

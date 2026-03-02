@@ -6,12 +6,12 @@ from main.models import UnifiedCampaign, PlatformCampaign, Organization, Organiz
 from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer, OrganizationSerializer
 from rest_framework.pagination import PageNumberPagination
-from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer
+from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
 from django.db.models import Q
 from datetime import timedelta
 from django.utils import timezone
 from .utils import get_percentage, get_last_month_objects_count, get_second_last_month_objects_count
-from .models import AdminNotificationSettings
+from .models import AdminNotificationSettings, AdminReport
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -160,3 +160,133 @@ class AdminNotificationSettingsAPIView(generics.RetrieveUpdateAPIView):
         # For example, you might want to send a confirmation email or log the change
         # For now, we'll just pass
         pass
+
+
+# ── Admin Analytics Reports ───────────────────────────────────────────────────
+
+VALID_ADMIN_METRICS = {
+    'revenue_overview',
+    'revenue_by_plan',
+    'user_growth',
+    'feature_usage',
+    'monthly_revenue',
+    'mrr_growth',
+    'total_transactions',
+    'failed_payments',
+}
+
+VALID_REPORT_TYPES = {'weekly', 'monthly', 'quarterly', 'custom'}
+
+
+class AdminReportPagination(PageNumberPagination):
+    page_size = 15
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class AdminReportListView(generics.ListAPIView):
+    """List all generated admin reports, newest first."""
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = AdminReportSerializer
+    pagination_class = AdminReportPagination
+    queryset = AdminReport.objects.order_by('-created_at')
+
+
+class GenerateAdminReportView(generics.GenericAPIView):
+    """
+    Generate a platform-wide admin analytics report.
+
+    POST body:
+    {
+        "report_type": "weekly" | "monthly" | "quarterly" | "custom",
+        "included_metrics": ["revenue_overview", "user_growth", ...],  // optional, defaults to all
+        "start_date": "YYYY-MM-DD",  // required only when report_type == "custom"
+        "end_date":   "YYYY-MM-DD"   // required only when report_type == "custom"
+    }
+    """
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, *args, **kwargs):
+        from datetime import datetime, timedelta
+
+        report_type = request.data.get('report_type', 'weekly').lower()
+        included_metrics = request.data.get('included_metrics', [])
+
+        if report_type not in VALID_REPORT_TYPES:
+            return Response(
+                {
+                    "error": (
+                        f"Invalid report_type: '{report_type}'. "
+                        f"Valid options are: {', '.join(sorted(VALID_REPORT_TYPES))}"
+                    )
+                },
+                status=400,
+            )
+
+        if included_metrics:
+            invalid = set(m.lower() for m in included_metrics) - VALID_ADMIN_METRICS
+            if invalid:
+                return Response(
+                    {
+                        "error": (
+                            f"Invalid metrics: {', '.join(sorted(invalid))}. "
+                            f"Valid options are: {', '.join(sorted(VALID_ADMIN_METRICS))}"
+                        )
+                    },
+                    status=400,
+                )
+            included_metrics = [m.lower() for m in included_metrics]
+
+        today = datetime.now().date()
+
+        if report_type == 'custom':
+            start_str = request.data.get('start_date')
+            end_str = request.data.get('end_date')
+
+            if not start_str or not end_str:
+                return Response(
+                    {"error": "Custom reports require both 'start_date' and 'end_date' (YYYY-MM-DD)."},
+                    status=400,
+                )
+
+            try:
+                start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+
+            if start_date > end_date:
+                return Response({"error": "start_date must be before or equal to end_date."}, status=400)
+
+        elif report_type == 'weekly':
+            end_date = today
+            start_date = today - timedelta(days=7)
+
+        elif report_type == 'monthly':
+            end_date = today
+            start_date = today - timedelta(days=30)
+
+        elif report_type == 'quarterly':
+            end_date = today
+            start_date = today - timedelta(days=90)
+
+        report = AdminReport.objects.create(
+            name="Generating...",
+            report_type=report_type,
+            status=AdminReport.Status.PENDING,
+            included_metrics=included_metrics,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        from .tasks import generate_admin_report_task
+        generate_admin_report_task.delay(report.id)
+
+        return Response(
+            {
+                "message": "Admin report is being generated. Check back shortly.",
+                "report_id": report.id,
+            },
+            status=202,
+        )
+
