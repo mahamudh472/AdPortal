@@ -7,11 +7,15 @@ from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer, OrganizationSerializer
 from rest_framework.pagination import PageNumberPagination
 from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
-from django.db.models import Q
+from django.db.models import Q, Sum
 from datetime import timedelta
+from decimal import Decimal
+import calendar
 from django.utils import timezone
 from .utils import get_percentage, get_last_month_objects_count, get_second_last_month_objects_count
 from .models import AdminNotificationSettings, AdminReport
+from finance.serializers import PaymentSerializer
+from finance.models import Payment, Subscription, Plan
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -75,6 +79,108 @@ class DashboardAPIView(generics.GenericAPIView):
 				}
 			)
 
+class FinanceOverviewAPIView(generics.GenericAPIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        now = timezone.now()
+
+        # ── Current & last month boundaries ──────────────────────────────────
+        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_end = current_month_start
+        # Go back one month
+        last_month_start = (current_month_start - timedelta(days=1)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+
+        # ── Monthly revenue (current month, paid payments) ────────────────────
+        monthly_revenue = (
+            Payment.objects.filter(status='paid', paid_at__gte=current_month_start)
+            .aggregate(total=Sum('amount'))['total']
+            or Decimal('0')
+        )
+
+        # ── MRR growth (%) vs previous month ─────────────────────────────────
+        last_month_revenue = (
+            Payment.objects.filter(
+                status='paid',
+                paid_at__gte=last_month_start,
+                paid_at__lt=last_month_end,
+            )
+            .aggregate(total=Sum('amount'))['total']
+            or Decimal('0')
+        )
+
+        if last_month_revenue == 0:
+            mrr_growth = 100.0 if monthly_revenue > 0 else 0.0
+        else:
+            mrr_growth = round(
+                float((monthly_revenue - last_month_revenue) / last_month_revenue * 100), 2
+            )
+
+        # ── Total transactions & failed payments ─────────────────────────────
+        total_transactions = Payment.objects.count()
+        failed_payments = Payment.objects.filter(status='failed').count()
+
+        # ── Revenue overview – last 6 calendar months ─────────────────────────
+        revenue_overview = {}
+        current_year = now.year
+        current_month = now.month
+
+        for i in range(5, -1, -1):  # 5 months ago → current month
+            month_num = current_month - i
+            year = current_year
+            while month_num <= 0:
+                month_num += 12
+                year -= 1
+
+            _, last_day = calendar.monthrange(year, month_num)
+            month_start = now.replace(
+                year=year, month=month_num, day=1,
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+            month_end = month_start.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+
+            month_name = month_start.strftime('%b')
+            month_revenue = (
+                Payment.objects.filter(
+                    status='paid',
+                    paid_at__gte=month_start,
+                    paid_at__lte=month_end,
+                )
+                .aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
+            )
+            revenue_overview[month_name] = float(month_revenue)
+
+        # ── Revenue by plan ───────────────────────────────────────────────────
+        revenue_by_plan = {}
+        for plan in Plan.objects.filter(is_active=True):
+            subscribers = Subscription.objects.filter(
+                plan=plan, status__in=['active', 'trialing']
+            ).count()
+
+            plan_revenue = (
+                Payment.objects.filter(status='paid', subscription__plan=plan)
+                .aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
+            )
+
+            revenue_by_plan[plan.name] = {
+                'subscribers': subscribers,
+                'revenue': float(plan_revenue),
+            }
+
+        return Response({
+            'monthly_revenue': float(monthly_revenue),
+            'mrr_growth': mrr_growth,
+            'total_transactions': total_transactions,
+            'failed_payments': failed_payments,
+            'revenue_overview': revenue_overview,
+            'revenue_by_plan': revenue_by_plan,
+        })
+
+
 class CampaignListPagination(PageNumberPagination):
 	max_page_size = 100
 	page_size = 10
@@ -91,28 +197,28 @@ class UserListPagination(PageNumberPagination):
 	page_size = 10
 
 class UserManagementAPIView(generics.GenericAPIView):
-	permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.IsAdminUser]
 
-	def get(self, *args, **kwargs):
-		all_users = User.objects.all()
-		total_users = all_users.count()
-		past_date = timezone.now() - timedelta(days=7)
-		last_week_created = all_users.filter(joined_at__gte=past_date).count()
-		active_users = all_users.filter(is_active=True).count()
-		
-		# TODO: Need to make this dynamic
-		suspended_users = 0
-		trial_users = 0
+    def get(self, *args, **kwargs):
+        all_users = User.objects.all()
+        total_users = all_users.count()
+        past_date = timezone.now() - timedelta(days=7)
+        last_week_created = all_users.filter(joined_at__gte=past_date).count()
+        active_users = all_users.filter(is_active=True).count()
+        suspended_users = all_users.filter(status='suspended').count()
 
-		return Response({
-			'total_users': {
-				'value': total_users,
-				'last_week': last_week_created
-			},
-			'active_users': active_users,
-			'suspended_users': suspended_users,
-			'trial_users': trial_users
-			})
+        # TODO: Need to make this dynamic
+        trial_users = 0
+
+        return Response({
+            'total_users': {
+                'value': total_users,
+                'last_week': last_week_created
+            },
+            'active_users': active_users,
+            'suspended_users': suspended_users,
+            'trial_users': trial_users
+        })
 
 
 class UserManagementListAPIView(generics.ListAPIView):
@@ -173,6 +279,16 @@ class OrganizationListAPIView(generics.ListAPIView):
         if q != '':
             return Organization.objects.filter(name__icontains=q)
         return Organization.objects.all()
+
+class TransactionListPagination(PageNumberPagination):
+    max_page_size = 100
+    page_size = 10
+
+class TransactionListAPIView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = TransactionListPagination
+    serializer_class = PaymentSerializer
+    queryset = Payment.objects.all().order_by('-created_at')
 
     
 class AdminNotificationSettingsAPIView(generics.RetrieveUpdateAPIView):

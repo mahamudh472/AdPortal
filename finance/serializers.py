@@ -1,5 +1,5 @@
 from rest_framework import fields, serializers
-from .models import Plan, PlanFeature, Subscription
+from .models import Plan, PlanFeature, Subscription, Payment
 
 class PlanFeatureSerializer(serializers.ModelSerializer):
 
@@ -31,3 +31,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 		used = 0
 
 		return int(used)
+
+class PaymentSerializer(serializers.ModelSerializer):
+    # Needed fields: organization, plan, amount, payment method, statys, date
+    organization = serializers.CharField(source='organization.name', read_only=True)
+    plan = serializers.SerializerMethodField()
+    payment_method = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Payment
+        fields = ['id', 'organization', 'plan', 'amount', 'payment_method', 'status', 'created_at']
+
+    def get_payment_method(self, obj):
+        return "stripe"
+    def get_plan(self, obj):
+        return obj.subscription.plan.name if obj.subscription and obj.subscription.plan else None
