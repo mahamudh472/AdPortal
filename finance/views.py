@@ -115,12 +115,13 @@ class GetPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
         subscription = subscription.first()
 
         plan_name = subscription.plan.name
-        campaign_limit = subscription.plan.features.filter(key="feature_1").first().value.split()[0]
-        campaign_used = subscription.usage_records.filter(feature_key="feature_1").aggregate(total_used=Sum('used'))['total_used'] or 0
+        limit = subscription.plan.get_campaign_limit()
+        campaign_limit = 'Unlimited' if limit is None else limit
+        campaign_used = subscription.usage_records.filter(feature_key="campaign_limit").aggregate(total_used=Sum('used'))['total_used'] or 0
 
-        return Response({   
+        return Response({
                 'plan_name': plan_name,
-                'campaign_limit': subscription.plan.get_campaign_limit(),
+                'campaign_limit': campaign_limit,
                 'campaign_used': campaign_used
             })
 

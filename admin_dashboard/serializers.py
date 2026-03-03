@@ -9,7 +9,7 @@ class UserAdminViewSerializer(serializers.ModelSerializer):
 		fields = ['id', 'full_name', 'email', 'status', 'joined_at', 'last_login']
 
 
-class AdminNotificationSettingsSerializer(serializers.Serializer):
+class AdminNotificationSettingsSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = AdminNotificationSettings

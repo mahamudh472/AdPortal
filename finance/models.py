@@ -36,13 +36,30 @@ class Plan(models.Model):
     def __str__(self):
         return f"{self.name} (${self.price}/{self.interval})"
     
+    def get_feature_limit(self, key):
+        """
+        Returns the value for a named feature key.
+        Returns None if the feature is not found.
+        Returns 'unlimited' (string) when there is no hard cap.
+        """
+        feature = self.features.filter(key=key).first()
+        if feature is None:
+            return None
+        v = feature.value.lower()
+        if v in ("unlimited", "true", "false"):
+            return None if v == "unlimited" else (v == "true")
+        try:
+            return int(v)
+        except ValueError:
+            return v
+
     def get_campaign_limit(self):
-        if self.name == "starter":
-            return self.features.filter(key="feature_1").first().value.split()[0]
-        elif self.name == "growth":
-            return self.features.filter(key="feature_2").first().value.split()[0]
-        elif self.name == "scale":
-            return 'Unlimited'
+        """Convenience wrapper – returns int or None (unlimited)."""
+        return self.get_feature_limit("campaign_limit")
+
+    def get_team_member_limit(self):
+        """Convenience wrapper – returns int or None (unlimited)."""
+        return self.get_feature_limit("team_member_limit")
 
 class PlanFeature(models.Model):
     plan = models.ForeignKey(
@@ -51,6 +68,8 @@ class PlanFeature(models.Model):
 
     key = models.CharField(max_length=100)
     value = models.CharField(max_length=255)
+    # Human-readable label shown to end-users; null means internal/tracking-only feature
+    display = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f"{self.plan.name} | {self.key} = {self.value}"

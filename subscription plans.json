@@ -1,38 +1,54 @@
 [
-    [
-        "25 Campaigns per month",
-        "Connect Meta, Google, and TikTok",
-        "Manage campaigns on all platforms",
-        "Standard analytics dashboard",
-        "Performance-over-time charts",
-        "AI Copy Generator",
-        "Standard AI Smart Insights",
-        "Standard budget optimization suggestions",
-        "Upload creatives",
-        "Email support"
-    ],
-    [
-        "100 campaigns per month",
-        "Everything in Starter",
-        "Full AI Smart Insights",
-        "AI budget optimization (daily recommendations)",
-        "AI creative fatigue detection",
-        "Audience expansion suggestions",
-        "Multi-platform spend & device performance analysis",
-        "Detailed platform-level reports",
-        "Team collaboration (up to 5 users)",
-        "Priority support"
-
-    ],
-    [
-        "Unlimited campaigns per month",
-        "Everything in Growth",
-        "Full AI optimization engine (budget shifts + alerts)",
-        "Advanced audience & trend analysis",
-        "Custom analytics dashboards",
-        "Full reporting suite",
-        "Unlimited team collaboration",
-        "Agency workspace navigation",
-        "Premium onboarding"
-    ]
+    {
+        "plan": "starter",
+        "features": [
+            { "key": "campaign_limit",         "value": 25,                     "display": "25 Campaigns per month" },
+            { "key": "platform_access",        "value": "meta,google,tiktok",   "display": "Connect Meta, Google, and TikTok" },
+            { "key": "campaign_management",    "value": true,                   "display": "Manage campaigns on all platforms" },
+            { "key": "analytics_level",        "value": "standard",             "display": "Standard analytics dashboard" },
+            { "key": "performance_charts",     "value": true,                   "display": "Performance-over-time charts" },
+            { "key": "ai_copy_generator",      "value": true,                   "display": "AI Copy Generator" },
+            { "key": "ai_insights_level",      "value": "standard",             "display": "Standard AI Smart Insights" },
+            { "key": "ai_budget_optimization", "value": "suggestions",          "display": "Standard budget optimization suggestions" },
+            { "key": "creative_upload",        "value": true,                   "display": "Upload creatives" },
+            { "key": "support_level",          "value": "email",                "display": "Email support" },
+            { "key": "team_member_limit",      "value": 1,                      "display": null },
+            { "key": "report_level",           "value": "basic",                "display": null },
+            { "key": "ai_creative_fatigue",    "value": false,                  "display": null },
+            { "key": "ai_optimization_engine", "value": false,                  "display": null },
+            { "key": "audience_expansion",     "value": false,                  "display": null },
+            { "key": "agency_workspace",       "value": false,                  "display": null }
+        ]
+    },
+    {
+        "plan": "growth",
+        "features": [
+            { "key": "campaign_limit",           "value": 100,         "display": "100 campaigns per month" },
+            { "key": "inherits",                 "value": "starter",   "display": "Everything in Starter" },
+            { "key": "ai_insights_level",        "value": "full",      "display": "Full AI Smart Insights" },
+            { "key": "ai_budget_optimization",   "value": "daily",     "display": "AI budget optimization (daily recommendations)" },
+            { "key": "ai_creative_fatigue",      "value": true,        "display": "AI creative fatigue detection" },
+            { "key": "audience_expansion",       "value": true,        "display": "Audience expansion suggestions" },
+            { "key": "multi_platform_analysis",  "value": true,        "display": "Multi-platform spend & device performance analysis" },
+            { "key": "report_level",             "value": "detailed",  "display": "Detailed platform-level reports" },
+            { "key": "team_member_limit",        "value": 5,           "display": "Team collaboration (up to 5 users)" },
+            { "key": "support_level",            "value": "priority",  "display": "Priority support" },
+            { "key": "ai_optimization_engine",   "value": false,       "display": null },
+            { "key": "agency_workspace",         "value": false,       "display": null }
+        ]
+    },
+    {
+        "plan": "scale",
+        "features": [
+            { "key": "campaign_limit",          "value": "unlimited",  "display": "Unlimited campaigns per month" },
+            { "key": "inherits",                "value": "growth",     "display": "Everything in Growth" },
+            { "key": "ai_optimization_engine",  "value": "full",       "display": "Full AI optimization engine (budget shifts + alerts)" },
+            { "key": "audience_trend_analysis", "value": "advanced",   "display": "Advanced audience & trend analysis" },
+            { "key": "analytics_level",         "value": "custom",     "display": "Custom analytics dashboards" },
+            { "key": "report_level",            "value": "full",       "display": "Full reporting suite" },
+            { "key": "team_member_limit",       "value": "unlimited",  "display": "Unlimited team collaboration" },
+            { "key": "agency_workspace",        "value": true,         "display": "Agency workspace navigation" },
+            { "key": "onboarding_level",        "value": "premium",    "display": "Premium onboarding" }
+        ]
+    }
 ]

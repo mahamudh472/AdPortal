@@ -74,11 +74,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         subscription = Subscription.objects.filter(organization__snowflake_id=selected_organization, status='active').select_related('plan').first() if selected_organization else None
         if subscription:
             plan_name = subscription.plan.name
-            campaign_limit = subscription.plan.get_campaign_limit()
-            if campaign_limit != 'Unlimited':
-                campaign_limit = int(campaign_limit)
-            print(plan_name, campaign_limit)
-            campaign_used = subscription.usage_records.filter(feature_key="feature_1").aggregate(total_used=Sum('used'))['total_used'] or 0
+            # Returns int for a hard limit, or None when unlimited
+            limit = subscription.plan.get_campaign_limit()
+            campaign_limit = 'Unlimited' if limit is None else limit
+            campaign_used = subscription.usage_records.filter(feature_key="campaign_limit").aggregate(total_used=Sum('used'))['total_used'] or 0
     
         data.update(
             {

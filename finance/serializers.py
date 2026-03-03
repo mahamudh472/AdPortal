@@ -1,17 +1,26 @@
+from django.db.models import Sum
 from rest_framework import fields, serializers
 from .models import Plan, PlanFeature, Subscription, Payment
 
 class PlanFeatureSerializer(serializers.ModelSerializer):
+	# `value` surfaces the display text so the frontend contract stays unchanged.
+	value = serializers.CharField(source='display')
 
 	class Meta:
 		model = PlanFeature
 		fields = ['key', 'value']
 
 class PlanSerializer(serializers.ModelSerializer):
-	features = PlanFeatureSerializer(many=True, read_only=True)
+	# Only expose features that have display text (internal tracking features are excluded).
+	features = serializers.SerializerMethodField()
+
 	class Meta:
 		model = Plan
 		fields = ['id', 'name', 'price', 'description', 'interval', 'features']
+
+	def get_features(self, obj):
+		qs = obj.features.filter(display__isnull=False).exclude(display='')
+		return PlanFeatureSerializer(qs, many=True).data
 
 class SubscriptionSerializer(serializers.ModelSerializer):
 	plan_name = serializers.CharField(source='plan.name', read_only=True)
@@ -19,18 +28,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 	campaign_used = serializers.SerializerMethodField()
 	class Meta:
 		model = Subscription
-		fields = ['plan_name', 'campaign_limit'], 'campaign_used'
+		fields = ['plan_name', 'campaign_limit', 'campaign_used']
 
-	def get_campaign_limit(self):
-		limit = self.plan.features.filter(key='feature_1').first().value.split()[0]
+	def get_campaign_limit(self, obj):
+		# None means unlimited — return the string the frontend expects.
+		limit = obj.plan.get_campaign_limit()
+		return 'Unlimited' if limit is None else limit
 
-		return int(limit)
-
-	def get_campaign_used(self):
-		# TODO: Need to make this dynamic
-		used = 0
-
-		return int(used)
+	def get_campaign_used(self, obj):
+		return obj.usage_records.filter(feature_key="campaign_limit").aggregate(
+			total_used=Sum('used')
+		)['total_used'] or 0
 
 class PaymentSerializer(serializers.ModelSerializer):
     # Needed fields: organization, plan, amount, payment method, statys, date

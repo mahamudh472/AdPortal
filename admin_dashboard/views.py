@@ -302,11 +302,7 @@ class AdminNotificationSettingsAPIView(generics.RetrieveUpdateAPIView):
     
     def perform_update(self, serializer):
         instance = serializer.save()
-        # Here you can add any additional logic that needs to happen after updating the settings
-        # For example, you might want to send a confirmation email or log the change
-        # For now, we'll just pass
-        pass
-
+        return instance
 
 # ── Admin Analytics Reports ───────────────────────────────────────────────────
 
