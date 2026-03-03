@@ -473,3 +473,4 @@ def sync_tiktok_integration(integration):
             state.save()
             logger.error("TikTok sync failed at stage %s: %s", stage, e)
             raise
+

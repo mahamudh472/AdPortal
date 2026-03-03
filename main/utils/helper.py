@@ -95,57 +95,136 @@ def get_dashboard_data(organization_id: str):
     }
 
 def get_analytics_data(organization_id: str):
-    # Needed fields: Total spend, impressions, click rate, roas for the last 6 months, grouped by month. spend by last month performance by device.
-    organization = Organization.objects.get(snowflake_id=organization_id)
-    all_analysis_data = AnalysisDaily.objects.filter(organization=organization)
-    total_spend = all_analysis_data.aggregate(total_spend=Sum('spend'))['total_spend'] or 0
-    impressions = all_analysis_data.aggregate(total_impressions=Sum('impressions'))['total_impressions'] or 0
-    click_rate = (all_analysis_data.aggregate(total_clicks=Sum('clicks'))['total_clicks'] or 0) / impressions if impressions > 0 else 0
-    roas = (all_analysis_data.aggregate(avg_roas=Sum('roas'))['avg_roas'] or 0) / all_analysis_data.count() if all_analysis_data.exists() else 0
-    week_ago = timezone.now() - timedelta(days=7)
-    analysis_data = AnalysisDaily.objects.filter(
-        organization=organization,
-        date__gte=week_ago
-    ).order_by('date')
-    # last 7 days clicks, conversions and impressions by date as key and values as clicks, conversions and impressions
-    last_7_days_data = {}
-    for i in range(7):
-        date = (timezone.now() - timedelta(days=6-i)).date()
-        last_7_days_data[date.strftime('%Y-%m-%d')] = {
-            'total_clicks': 0,
-            'total_impressions': 0,
-            'total_conversions': 0
-        }
-    
-    for item in analysis_data.values('date').annotate(
-        total_clicks=Sum('clicks'),
-        total_impressions=Sum('impressions'),
-        total_conversions=Sum('conversions')
-    ):
-        date_key = item['date'].strftime('%Y-%m-%d')
-        if date_key in last_7_days_data:
-            last_7_days_data[date_key] = {
-                'total_clicks': item['total_clicks'] or 0,
-                'total_impressions': item['total_impressions'] or 0,
-                'total_conversions': item['total_conversions'] or 0
-            }
+    """
+    Returns analytics data for the given organization:
+    - top_metrics: Total spend, impressions, click_rate, conversions for the
+      current calendar month plus % change vs the previous month.
+    - monthly_performance: Last 6 months matrix of clicks, conversions, impressions.
+    - spend_by_platform: Last 6 months monthly spend broken down by platform.
+    - device_performance: Aggregated clicks and impressions by device type drawn
+      from the device_breakdown JSONField.
+    """
+    from dateutil.relativedelta import relativedelta
+    from main.models import Platform
 
-    
-    
-    # performance by device
-    device_performance = analysis_data.values('device_breakdown').annotate(
-        total_spend=Sum('spend'),
-        total_clicks=Sum('clicks'),
-        total_impressions=Sum('impressions'),
-    )
-    
+    organization = Organization.objects.get(snowflake_id=organization_id)
+    today = timezone.now().date()
+
+    # ── Calendar-month boundaries ──────────────────────────────────────────
+    current_month_start = today.replace(day=1)
+    prev_month_end = current_month_start - timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+    six_months_ago_start = current_month_start - relativedelta(months=5)
+
+    all_data = AnalysisDaily.objects.filter(organization=organization)
+
+    # ── Current & previous month aggregates ──────────────────────────────
+    def _agg(qs):
+        return qs.aggregate(
+            spend=Sum('spend'),
+            impressions=Sum('impressions'),
+            clicks=Sum('clicks'),
+            conversions=Sum('conversions'),
+        )
+
+    curr = _agg(all_data.filter(date__gte=current_month_start, date__lte=today))
+    prev = _agg(all_data.filter(date__gte=prev_month_start, date__lte=prev_month_end))
+
+    def _pct_change(current_val, prev_val):
+        current_val = current_val or 0
+        prev_val = prev_val or 0
+        if prev_val == 0:
+            return 100.0 if current_val > 0 else 0.0
+        return round((current_val - prev_val) / prev_val * 100, 2)
+
+    curr_impressions = curr['impressions'] or 0
+    curr_clicks = curr['clicks'] or 0
+    prev_impressions = prev['impressions'] or 0
+    prev_clicks = prev['clicks'] or 0
+
+    curr_ctr = (curr_clicks / curr_impressions * 100) if curr_impressions > 0 else 0.0
+    prev_ctr = (prev_clicks / prev_impressions * 100) if prev_impressions > 0 else 0.0
+
+    top_metrics = {
+        'total_spend': {
+            'value': round(curr['spend'] or 0, 2),
+            'change_percent': _pct_change(curr['spend'], prev['spend']),
+        },
+        'impressions': {
+            'value': curr_impressions,
+            'change_percent': _pct_change(curr_impressions, prev_impressions),
+        },
+        'click_rate': {
+            'value': round(curr_ctr, 2),
+            'change_percent': _pct_change(curr_ctr, prev_ctr),
+        },
+        'conversions': {
+            'value': curr['conversions'] or 0,
+            'change_percent': _pct_change(curr['conversions'], prev['conversions']),
+        },
+    }
+
+    # ── Last 6 months list (oldest → newest) ─────────────────────────────
+    months_list = []
+    for i in range(5, -1, -1):
+        d = current_month_start - relativedelta(months=i)
+        months_list.append((d.year, d.month, d.strftime('%b')))
+
+    # ── Monthly performance matrix ────────────────────────────────────────
+    monthly_performance = {label: {'clicks': 0, 'conversions': 0, 'impressions': 0} for _, _, label in months_list}
+
+    for row in (
+        all_data
+        .filter(date__gte=six_months_ago_start, date__lte=today)
+        .values('date__year', 'date__month')
+        .annotate(
+            total_clicks=Sum('clicks'),
+            total_impressions=Sum('impressions'),
+            total_conversions=Sum('conversions'),
+        )
+    ):
+        for year, month, label in months_list:
+            if row['date__year'] == year and row['date__month'] == month:
+                monthly_performance[label]['clicks'] += row['total_clicks'] or 0
+                monthly_performance[label]['impressions'] += row['total_impressions'] or 0
+                monthly_performance[label]['conversions'] += row['total_conversions'] or 0
+
+    # ── Spend by platform (current month total per platform) ─────────────
+    platforms = [p[0] for p in Platform.choices]
+    spend_by_platform = {p: 0.0 for p in platforms}
+
+    for row in (
+        all_data
+        .filter(date__gte=current_month_start, date__lte=today)
+        .values('platform')
+        .annotate(total_spend=Sum('spend'))
+    ):
+        p = row['platform']
+        if p in spend_by_platform:
+            spend_by_platform[p] = round(row['total_spend'] or 0, 2)
+
+    # ── Performance by device ─────────────────────────────────────────────
+    # device_breakdown is stored as {"mobile": {"clicks": N, "impressions": M}, ...}
+    device_performance: dict = {}
+    for row in (
+        all_data
+        .filter(date__gte=six_months_ago_start, date__lte=today)
+        .exclude(device_breakdown__isnull=True)
+        .values_list('device_breakdown', flat=True)
+    ):
+        if not isinstance(row, dict):
+            continue
+        for device, metrics in row.items():
+            if not isinstance(metrics, dict):
+                continue
+            bucket = device_performance.setdefault(device, {'clicks': 0, 'impressions': 0})
+            bucket['clicks'] += metrics.get('clicks', 0) or 0
+            bucket['impressions'] += metrics.get('impressions', 0) or 0
 
     return {
-        'total_spend': total_spend,
-        'impressions': impressions,
-        'click_rate': click_rate,
-        'roas': roas,
-        'last_7_days_data': last_7_days_data,
-        'device_performance': device_performance
+        'top_metrics': top_metrics,
+        'monthly_performance': monthly_performance,
+        'spend_by_platform': spend_by_platform,
+        'device_performance': device_performance,
     }
 

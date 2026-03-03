@@ -8,6 +8,61 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
+def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: str):
+    """
+    Background task that propagates a PAUSE / ACTIVE toggle to every
+    connected ad platform (META, TIKTOK).  Google is skipped until supported.
+
+    Args:
+        unified_campaign_id: PK of the UnifiedCampaign.
+        target_status: "ACTIVE" or "PAUSED".
+    """
+    from main.utils.meta_engine.manage_ad import toggle_campaign_status_on_meta
+    from main.utils.tiktok_engine.manage_ad import toggle_campaign_status_on_tiktok
+    from main.models import PlatformCampaign
+
+    logger.info(
+        "toggle_campaign_status_task: campaign=%s target=%s",
+        unified_campaign_id, target_status,
+    )
+
+    all_errors: list[dict] = []
+
+    platforms = (
+        PlatformCampaign.objects
+        .filter(unified_campaign_id=unified_campaign_id)
+        .values_list("integration__platform", flat=True)
+        .distinct()
+    )
+
+    for platform in platforms:
+        try:
+            if platform == "META":
+                errs = toggle_campaign_status_on_meta(unified_campaign_id, target_status)
+            elif platform == "TIKTOK":
+                errs = toggle_campaign_status_on_tiktok(unified_campaign_id, target_status)
+            else:
+                logger.info("toggle_campaign_status_task: skipping unsupported platform %s", platform)
+                continue
+            all_errors.extend(errs)
+        except Exception as exc:
+            logger.error(
+                "toggle_campaign_status_task: platform=%s campaign=%s error=%s",
+                platform, unified_campaign_id, exc,
+            )
+            all_errors.append({"platform": platform, "error": str(exc)})
+            self.retry(exc=exc, countdown=60)
+
+    if all_errors:
+        logger.warning(
+            "toggle_campaign_status_task completed with errors: %s", all_errors
+        )
+    else:
+        logger.info("toggle_campaign_status_task completed successfully for campaign %s", unified_campaign_id)
+
+
+
+@shared_task(bind=True, max_retries=3)
 def sync_ads_task(self, platform_integration_id):
     """Background task to sync ads for a given platform integration."""
     logger.info("sync_ads_task started for integration_id=%s", platform_integration_id)

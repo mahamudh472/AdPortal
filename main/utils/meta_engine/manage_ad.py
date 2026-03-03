@@ -815,3 +815,76 @@ def _status_to_meta(status: str) -> str:
         "SYNCING": "PAUSED",
     }
     return mapping.get(status, "PAUSED")
+
+
+# ────────────────────────────────────────────────────────────
+# TOGGLE CAMPAIGN STATUS (PAUSE / RESUME)
+# ────────────────────────────────────────────────────────────
+
+def toggle_campaign_status_on_meta(unified_campaign_id: int, target_status: str) -> list[dict]:
+    """
+    Set all Meta objects belonging to *unified_campaign_id* to *target_status*
+    ("ACTIVE" or "PAUSED").
+
+    Updates PlatformCampaign, AdGroup, and Ad rows in the DB to match.
+    Returns a list of error dicts (empty list = full success).
+    """
+    from main.models import UnifiedCampaign, PlatformCampaign
+
+    if target_status not in ("ACTIVE", "PAUSED"):
+        raise ValueError(f"target_status must be ACTIVE or PAUSED, got {target_status!r}")
+
+    campaign = UnifiedCampaign.objects.get(id=unified_campaign_id)
+    meta_status = _status_to_meta(target_status)
+    errors: list[dict] = []
+
+    platform_campaigns = PlatformCampaign.objects.filter(
+        unified_campaign=campaign,
+        integration__platform="META",
+    ).select_related("integration").prefetch_related("ad_groups__ads")
+
+    for pc in platform_campaigns:
+        integration = pc.integration
+        try:
+            _init_meta(integration)
+        except Exception as exc:
+            errors.append({"stage": "INIT", "platform_campaign_id": pc.id, "error": str(exc)})
+            continue
+
+        # ── Campaign level ─────────────────────────────────
+        if pc.platform_campaign_id:
+            try:
+                meta_campaign = MetaCampaign(pc.platform_campaign_id)
+                meta_campaign.api_update(params={"status": meta_status})
+                pc.status = target_status
+                pc.save(update_fields=["status"])
+                logger.info("Meta campaign %s set to %s", pc.platform_campaign_id, meta_status)
+            except Exception as exc:
+                logger.error("Failed to update Meta campaign %s: %s", pc.platform_campaign_id, exc)
+                errors.append({"stage": "CAMPAIGN", "id": pc.platform_campaign_id, "error": str(exc)})
+
+        # ── Ad Set level ───────────────────────────────────
+        for ag in pc.ad_groups.all():
+            if ag.platform_adgroup_id:
+                try:
+                    meta_adset = MetaAdSet(ag.platform_adgroup_id)
+                    meta_adset.api_update(params={"status": meta_status})
+                    ag.status = target_status
+                    ag.save(update_fields=["status"])
+                except Exception as exc:
+                    logger.error("Failed to update Meta ad set %s: %s", ag.platform_adgroup_id, exc)
+                    errors.append({"stage": "ADSET", "id": ag.platform_adgroup_id, "error": str(exc)})
+
+            # ── Ad level ───────────────────────────────────
+            for ad in ag.ads.all():
+                if ad.platform_ad_id:
+                    try:
+                        meta_ad = MetaAd(ad.platform_ad_id)
+                        meta_ad.api_update(params={"status": meta_status})
+                        ad.status = target_status
+                        ad.save(update_fields=["status"])
+                    except Exception as exc:
+                        logger.error("Failed to update Meta ad %s: %s", ad.platform_ad_id, exc)
+                        errors.append({"stage": "AD", "id": ad.platform_ad_id, "error": str(exc)})
+
+    return errors

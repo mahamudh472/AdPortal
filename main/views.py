@@ -168,6 +168,78 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
             raise PermissionDenied("You do not have permission to delete this campaign.")
         instance.delete()
 
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="org_id",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description="Organization Snowflake ID"
+        )
+    ],
+    request=None,
+    responses={200: None},
+)
+class CampaignToggleStatusAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /campaigns/<id>/toggle-status/ — toggle between ACTIVE and PAUSED.
+
+    Rules:
+    - DRAFT campaigns cannot be toggled (they are not live on any platform).
+    - ARCHIVED / ERROR campaigns are rejected as well.
+    - On success the unified campaign status is updated immediately and a
+      background task propagates the change to every connected platform.
+    """
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        from main.tasks import toggle_campaign_status_task
+
+        campaign_id = kwargs.get('id')
+        org_snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+
+        campaign = UnifiedCampaign.objects.filter(
+            id=campaign_id, organization=organization
+        ).first()
+        if not campaign:
+            raise ValidationError({'campaign_id': 'Campaign not found.'})
+
+        TOGGLEABLE = {'ACTIVE', 'PAUSED'}
+        if campaign.status not in TOGGLEABLE:
+            return Response(
+                {
+                    'error': (
+                        f"Cannot toggle a campaign with status '{campaign.status}'. "
+                        "Only ACTIVE or PAUSED campaigns can be toggled."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_status = 'PAUSED' if campaign.status == 'ACTIVE' else 'ACTIVE'
+
+        # Update the unified status immediately so the UI reflects the change
+        campaign.status = target_status
+        campaign.save(update_fields=['status', 'updated_at'])
+
+        # Propagate to platforms in the background
+        toggle_campaign_status_task.delay(campaign.id, target_status)
+
+        return Response(
+            {
+                'campaign_id': campaign.id,
+                'status': target_status,
+                'message': f"Campaign is now {target_status.lower()}. "
+                           "Platform changes are being applied in the background.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 @extend_schema(
     parameters=[
         OpenApiParameter(
@@ -542,7 +614,6 @@ class AIInsightListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
         return queryset
 
 
-from .utils.meta_engine.analysis import generate_meta_campaign_analysis
 @extend_schema(
     parameters=[
         OpenApiParameter(
@@ -562,11 +633,8 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        integration = organization.integrations.filter(platform='META').first()
-        campaign_ids = integration.platform_campaigns.values_list('platform_campaign_id', flat=True) if integration else []
-        print("Generating analysis for campaigns:", campaign_ids)
-        data = generate_meta_campaign_analysis(integration, platform_campaign_ids=campaign_ids)
-        return Response({"success": "Generating analysis."}, status=status.HTTP_200_OK)
+        data = get_analytics_data(snowflake_id)
+        return Response(data, status=status.HTTP_200_OK)
 
 @extend_schema(
     parameters=[
