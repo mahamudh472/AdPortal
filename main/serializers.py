@@ -1,5 +1,5 @@
 from accounts.serializers import SimpleUserSerializer
-from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight, Ad
+from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight, Ad, AdAsset
 from rest_framework import serializers
 from django.db import models
 import json
@@ -7,15 +7,42 @@ from finance.models import Payment
 from analysis.models import AnalysisDaily
 from main.utils.helper import get_performance_matrics
 
+class PlatformAdAssetSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdAsset
+        fields = ['id', 'file_url', 'file_type', 'status']
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.file:
+            return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+        return None
+
+
 class PlatformAdSerializer(serializers.ModelSerializer):
     matrics = serializers.SerializerMethodField()
+    assets = serializers.SerializerMethodField()
+
     class Meta:
         model = Ad
-        fields = ['id', 'name', 'status', 'matrics']
+        fields = [
+            'id', 'name', 'status',
+            'headline', 'primary_text', 'description',
+            'destination_url', 'call_to_action', 'preview_link',
+            'assets', 'matrics',
+        ]
+
     def get_matrics(self, obj):
         analysis = AnalysisDaily.objects.filter(adgroup_id=obj.ad_group_id)
         analysis = get_performance_matrics(analysis)
         return analysis
+
+    def get_assets(self, obj):
+        return PlatformAdAssetSerializer(
+            obj.assets.all(), many=True, context=self.context
+        ).data
 
 class TempCampaignSerializer(serializers.ModelSerializer):
     platforms = serializers.SerializerMethodField()
@@ -92,11 +119,23 @@ class CampaignSerializer(serializers.ModelSerializer):
         return analysis
 
     def get_ads(self, obj):
+        if obj.status == 'DRAFT':
+            draft = obj.draft_data or {}
+            creative_fields = [
+                'ad_name', 'headline', 'primary_text', 'description',
+                'call_to_action', 'destination_url',
+            ]
+            ad_data = {k: draft.get(k) for k in creative_fields}
+            # Only return if at least one creative field is populated
+            if any(ad_data.values()):
+                return [ad_data]
+            return []
+
         ads = []
         for pc in obj.platform_campaigns.all():
             for ad_group in pc.ad_groups.all():
                 ads.extend(ad_group.ads.all())
-        return PlatformAdSerializer(ads, many=True).data       
+        return PlatformAdSerializer(ads, many=True, context=self.context).data
 
     def get_audience_targeting(self, obj):
         defaults = {

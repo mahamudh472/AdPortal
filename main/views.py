@@ -155,7 +155,11 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
         organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        queryset = UnifiedCampaign.objects.filter(organization=organization)
+        queryset = UnifiedCampaign.objects.filter(organization=organization).prefetch_related(
+            'platform_campaigns__integration',
+            'platform_campaigns__ad_groups__ads__assets',
+            'ai_insights',
+        )
         return queryset
     
     def perform_destroy(self, instance):
