@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .integration_handler import AdProfileListView, SelectAdProfileView, MetaPageListView, SelectMetaPageView
+from .integration_handler import AdProfileListView, SelectAdProfileView, MetaPageListView, SelectMetaPageView, DisconnectAdIntegrationView
 
 urlpatterns = [
     path('dashboard/', views.DashboardAPIView.as_view()),
@@ -15,6 +15,7 @@ urlpatterns = [
 	path('select-ad-profile/', SelectAdProfileView.as_view()),
 	path('get-meta-pages/', MetaPageListView.as_view()),
 	path('select-meta-page/', SelectMetaPageView.as_view()),
+    path('disconnect-integration/', DisconnectAdIntegrationView.as_view()),
 	path('generate-ai-copy/', views.AICopyGeneratorAPIView.as_view()),
     path('generate-ad-copy/', views.AIAdCopyGeneratorAPIView.as_view()),
     path('ai-insights/', views.AIInsightListAPIView.as_view()),

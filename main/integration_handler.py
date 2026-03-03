@@ -479,3 +479,25 @@ class SelectMetaPageView(RequiredOrganizationIDMixin, APIView):
         integration.save(update_fields=["page_id"])
 
         return Response({"success": "Facebook Page selected.", "page_id": integration.page_id})
+
+class DisconnectAdIntegrationView(RequiredOrganizationIDMixin, APIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request, *args, **kwargs):
+        platform = request.data.get('platform', None)
+
+        if not platform:
+            return Response({'error': 'Platform is not provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        integration = AdIntegration.objects.filter(organization=organization, platform=platform)
+        if not integration.exists():
+            return Response({'error': 'Integration not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        integration.delete()
+
+        return Response({"success": f"{platform} integration disconnected."})
