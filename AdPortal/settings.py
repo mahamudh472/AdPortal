@@ -23,12 +23,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-e7iz@(00au76(vdf40adk+@dbtl_wvgf@=zbh+u2szp(z1zu68'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-e7iz@(00au76(vdf40adk+@dbtl_wvgf@=zbh+u2szp(z1zu68')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 
 # Application definition
@@ -59,8 +59,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -94,12 +94,24 @@ ASGI_APPLICATION = 'AdPortal.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if os.getenv('POSTGRES_HOST'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('POSTGRES_DB', 'adportal'),
+            'USER': os.getenv('POSTGRES_USER', 'adportal_user'),
+            'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
+            'HOST': os.getenv('POSTGRES_HOST', 'db'),
+            'PORT': os.getenv('POSTGRES_PORT', '5432'),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 CACHES = {
     'default': {
@@ -165,7 +177,6 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
-
 SPECTACULAR_SETTINGS = {
     'TITLE': 'AdPortal API',
     'DESCRIPTION': 'API documentation for AdPortal.',
@@ -176,8 +187,8 @@ SPECTACULAR_SETTINGS = {
 }   
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': datetime.timedelta(minutes=1),
-    'REFRESH_TOKEN_LIFETIME': datetime.timedelta(seconds=90),
+    'ACCESS_TOKEN_LIFETIME': datetime.timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': datetime.timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
@@ -224,10 +235,10 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-TRUSTED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5174',
+CSRF_TRUSTED_ORIGINS = [
+    'http://10.10.13.88:3000',
+    'http://10.10.13.88:5173',
+    'http://10.10.13.88:5174',
     'http://localhost:5175',
     'https://adportal-website-by-kuzkuzma.netlify.app'
 ]
