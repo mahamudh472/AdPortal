@@ -13,4 +13,5 @@ urlpatterns = [
     path('reports/', views.AdminReportListView.as_view(), name='admin-report-list'),
     path('generate-report/', views.GenerateAdminReportView.as_view(), name='admin-generate-report'),
     path('finance/', views.FinanceOverviewAPIView.as_view(), name='admin-finance-overview'),
+    path('platform-analysis/', views.PlatformAnalysisAPIView.as_view(), name='admin-platform-analysis'),
 ]

@@ -1,6 +1,5 @@
 import random
 from django.conf import settings
-from django.core.mail import send_mail
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -207,7 +206,7 @@ class SendOTPView(GenericAPIView):
 
 class ChangePasswordView(GenericAPIView):
     serializer_class = ChangePasswordSerializer
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = []
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)

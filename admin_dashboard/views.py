@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer, OrganizationSerializer
 from rest_framework.pagination import PageNumberPagination
 from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Count
 from datetime import timedelta
 from decimal import Decimal
 import calendar
@@ -245,6 +245,9 @@ class ChangeUserStatusAPIView(generics.UpdateAPIView):
         user = self.get_object()
         new_status = request.data.get('status', '').lower()
 
+        if user.is_superuser:
+            return Response({"error": "Cannot change status of a superuser."}, status=400)
+
         if new_status not in ['active', 'inactive', 'suspended']:
             return Response(
                 {"error": "Invalid status. Valid options are: active, inactive, suspended."},
@@ -431,4 +434,88 @@ class GenerateAdminReportView(generics.GenericAPIView):
             },
             status=202,
         )
+
+
+class PlatformAnalysisAPIView(generics.GenericAPIView):
+    """
+    Returns platform-wide analytics for the admin dashboard:
+      - user_growth: new & active users per month for the last 6 months
+      - feature_usage: % of organisations that have used each feature
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        from analysis.models import AnalysisDaily, Report
+
+        now = timezone.now()
+        current_year = now.year
+        current_month = now.month
+
+        # ── User Growth (last 6 months) ───────────────────────────────────────
+        user_growth = []
+        for i in range(5, -1, -1):  # 5 months ago → current month
+            month_num = current_month - i
+            year = current_year
+            while month_num <= 0:
+                month_num += 12
+                year -= 1
+
+            _, last_day = calendar.monthrange(year, month_num)
+            month_start = now.replace(
+                year=year, month=month_num, day=1,
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+            month_end = month_start.replace(
+                day=last_day, hour=23, minute=59, second=59, microsecond=999999
+            )
+
+            new_users = User.objects.filter(
+                joined_at__gte=month_start, joined_at__lte=month_end
+            ).count()
+            active_users = User.objects.filter(
+                last_login__gte=month_start, last_login__lte=month_end
+            ).count()
+
+            user_growth.append({
+                'month': month_start.strftime('%b'),
+                'new_users': new_users,
+                'active_users': active_users,
+            })
+
+        # ── Feature Usage ─────────────────────────────────────────────────────
+        total_orgs = Organization.objects.count()
+
+        def usage_pct(count):
+            if total_orgs == 0:
+                return 0.0
+            return round((count / total_orgs) * 100, 1)
+
+        orgs_with_campaigns = (
+            UnifiedCampaign.objects.values('organization').distinct().count()
+        )
+        orgs_with_analytics = (
+            AnalysisDaily.objects.values('organization').distinct().count()
+        )
+        orgs_with_reports = (
+            Report.objects.values('organization').distinct().count()
+        )
+        # Orgs that have more than one member = team collaboration enabled
+        orgs_with_teams = (
+            OrganizationMember.objects
+            .values('organization')
+            .annotate(cnt=Count('id'))
+            .filter(cnt__gt=1)
+            .count()
+        )
+        feature_usage = [
+            {'feature': 'Campaign Creation', 'usage': usage_pct(orgs_with_campaigns)},
+            {'feature': 'Analytics', 'usage': usage_pct(orgs_with_analytics)},
+            {'feature': 'Reports', 'usage': usage_pct(orgs_with_reports)},
+            {'feature': 'Team Collaboration', 'usage': usage_pct(orgs_with_teams)},
+        ]
+
+        return Response({
+            'user_growth': user_growth,
+            'feature_usage': feature_usage,
+        })
 

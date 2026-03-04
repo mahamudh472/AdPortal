@@ -17,6 +17,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy, generate_copy
 from .mixins import RequiredOrganizationIDMixin
+from finance.models import Subscription, UsageRecord
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
@@ -555,6 +556,27 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         )
     ]
 )
+def _increment_ai_usage(organization):
+    """Increment the ai_copy_generator UsageRecord for the org's active billing period."""
+    subscription = (
+        Subscription.objects
+        .filter(organization=organization, status__in=['active', 'trialing'])
+        .order_by('-created_at')
+        .first()
+    )
+    if not subscription or not subscription.current_period_start:
+        return
+    record, _ = UsageRecord.objects.get_or_create(
+        organization=organization,
+        subscription=subscription,
+        feature_key='ai_copy_generator',
+        period_start=subscription.current_period_start,
+        period_end=subscription.current_period_end,
+        defaults={'used': 0},
+    )
+    UsageRecord.objects.filter(pk=record.pk).update(used=models.F('used') + 1)
+
+
 class AICopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
     serializer_class = AICopyRequestSerializer
@@ -571,7 +593,10 @@ class AICopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVie
             tone=data['tone'],
             copy_type=data['copy_type']
         )
-        
+        org_snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+        if organization:
+            _increment_ai_usage(organization)
         return Response({'generated_copies': generated_copy}, status=status.HTTP_200_OK)
 
 
@@ -592,7 +617,10 @@ class AIAdCopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIV
             key_benefits=data['key_benefits'],
             tone=data['tone']
         )
-        
+        org_snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
+        if organization:
+            _increment_ai_usage(organization)
         return Response({'Ad copy': generated_copy}, status=status.HTTP_200_OK)
 
 class AIInsightPagination(PageNumberPagination):

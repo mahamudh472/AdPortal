@@ -176,11 +176,11 @@ SPECTACULAR_SETTINGS = {
 }   
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': datetime.timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': datetime.timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': datetime.timedelta(minutes=1),
+    'REFRESH_TOKEN_LIFETIME': datetime.timedelta(seconds=90),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': False,
+    'UPDATE_LAST_LOGIN': True,
 }
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -232,10 +232,6 @@ TRUSTED_ORIGINS = [
     'https://adportal-website-by-kuzkuzma.netlify.app'
 ]
 
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': datetime.timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': datetime.timedelta(days=30)
-}
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 HTTP_STRIPE_SIGNATURE = os.getenv("HTTP_STRIPE_SIGNATURE")
