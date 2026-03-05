@@ -1,7 +1,6 @@
 from django.urls import path
 from . import views
 from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
     TokenRefreshView,
 )
 
@@ -21,5 +20,11 @@ urlpatterns = [
     path('profile/update/', views.UpdateProfileView.as_view(), name='profile_update'),
     path('notifications/', views.NotificationListAPIView.as_view(), name='notifications'),
     path('notification-settings/', views.NotificationSettingsAPIView.as_view(), name='notification_settings'),
+    path('read-notification/', views.MarkNotificationReadAPIView.as_view(), name='mark_notifications_read'),
+    path('read-all-notifications/', views.MarkAllNotificationsReadAPIView.as_view(), name='mark_all_notifications_read'),
+    path('delete-notification/', views.DeleteNotificationAPIView.as_view(), name='delete_notifications'),
+    path('delete-all-notifications/', views.DeleteAllNotificationsAPIView.as_view(), name='delete_all_notifications'),
     path('delete-account/', views.DeleteAccountView.as_view(), name='delete_account'),
+    path('test-notifications/', views.TestNotificationAPIView.as_view(), name='test_notifications'),
+    path('contact-us/', views.ContactUsView.as_view(), name='contact_us'),
 ]

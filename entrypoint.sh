@@ -23,6 +23,10 @@ except Exception as e:
     done
 fi
 
+# Make migrations
+echo "Making migrations..."
+python manage.py makemigrations --noinput
+
 echo "Running migrations..."
 python manage.py migrate --noinput
 

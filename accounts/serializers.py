@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import NotificationSetting, User, Notification
+from .models import NotificationSetting, User, Notification, ContactUsMessage
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from main.models import Organization
 from finance.models import Subscription
@@ -104,3 +104,8 @@ class NotificationSettingsSerializer(serializers.ModelSerializer):
     class Meta:
          model = NotificationSetting
          fields = ['campaign_performance', 'budget_alerts', 'weekly_performance_summary', 'ai_recommendations', 'team_activity']
+
+class ContactUsMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactUsMessage
+        fields = "__all__"

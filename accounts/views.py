@@ -17,7 +17,8 @@ from accounts.serializers import (
     UserSerializer, 
     VerifyEmailSerializer,
     ChangePasswordSerializer,
-    NotificationSerializer
+    NotificationSerializer,
+    ContactUsMessageSerializer
 )
 from rest_framework.pagination import PageNumberPagination
 from .models import NotificationSetting, User, OTP, Notification
@@ -260,8 +261,68 @@ class NotificationListAPIView(ListAPIView):
     pagination_class = NotifcationListPagination
 
     def get_queryset(self):
-        notifications = Notification.objects.filter(user=self.request.user)
+        notifications = Notification.objects.filter(user=self.request.user).order_by('-created_at')
         return notifications
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        unread_count = self.get_queryset().filter(read=False).count()
+        response.data['unread_count'] = unread_count
+        return response
+
+class MarkNotificationReadAPIView(GenericAPIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request):
+        notification_ids = request.data.get('notification_ids', [])
+        if not isinstance(notification_ids, list):
+            return Response({"error": "notification_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+
+        notifications = Notification.objects.filter(id__in=notification_ids, user=request.user)
+        updated_count = notifications.update(read=True)
+
+        return Response({"message": f"{updated_count} notifications marked as read"}, status=status.HTTP_200_OK)
+
+class MarkAllNotificationsReadAPIView(GenericAPIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request):
+        notifications = Notification.objects.filter(user=request.user, read=False)
+        updated_count = notifications.update(read=True)
+
+        return Response({"message": f"All {updated_count} notifications marked as read"}, status=status.HTTP_200_OK)
+
+class DeleteNotificationAPIView(GenericAPIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request):
+        notification_ids = request.data.get('notification_ids', [])
+        if not isinstance(notification_ids, list):
+            return Response({"error": "notification_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+
+        notifications = Notification.objects.filter(id__in=notification_ids, user=request.user)
+        deleted_count, _ = notifications.delete()
+
+        return Response({"message": f"{deleted_count} notifications deleted"}, status=status.HTTP_200_OK)
+
+class DeleteAllNotificationsAPIView(GenericAPIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request):
+        notifications = Notification.objects.filter(user=request.user)
+        deleted_count, _ = notifications.delete()
+
+        return Response({"message": f"All {deleted_count} notifications deleted"}, status=status.HTTP_200_OK)
+
+class TestNotificationAPIView(GenericAPIView):
+    permission_classes = [IsRegularPlatformUser]
+
+    def post(self, request):
+        user = request.user
+        Notification.objects.create(
+            user=user,
+            message="This is a test notification."
+        )
+        return Response({"message": "Test notification created"}, status=status.HTTP_201_CREATED)
 
 class NotificationSettingsAPIView(GenericAPIView):
     serializer_class = NotificationSettingsSerializer
@@ -309,3 +370,14 @@ class CheckOTPView(GenericAPIView):
                 return Response({"error": "OTP is expired or already used"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+class ContactUsView(GenericAPIView):
+    permission_classes = []
+    serializer_class = ContactUsMessageSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Your message has been received. We'll get back to you shortly."}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
