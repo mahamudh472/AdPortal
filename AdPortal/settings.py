@@ -257,8 +257,13 @@ LOGGING = {
             "style": "{",
         },
     },
-    
+
     "handlers": {
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
         "file": {
             "level": "INFO",
             "class": "logging.handlers.RotatingFileHandler",
@@ -278,7 +283,7 @@ LOGGING = {
     },
     "loggers": {
         "": {  # root logger
-            "handlers": ["file", "error_file"],
+            "handlers": ["console", "file", "error_file"],
             "level": "INFO",
         },
     },
