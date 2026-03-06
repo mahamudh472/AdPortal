@@ -146,7 +146,25 @@ def generate_report_task(self, report_id):
             )
             for member in members
         ]
-        Notification.objects.bulk_create(notifications)
+        created_notifications = Notification.objects.bulk_create(notifications)
+
+        # bulk_create does not fire post_save signals, so send WebSocket messages manually
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        for notification in created_notifications:
+            group_name = f"user_{notification.user_id}"
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    'type': 'send_notification',
+                    'data': {
+                        'id': notification.id,
+                        'message': notification.message,
+                        'created_at': notification.created_at.isoformat(),
+                    }
+                }
+            )
 
         logger.info("Report %s generated successfully for org %s", report_id, organization.name)
 

@@ -252,12 +252,12 @@ class LogoutView(GenericAPIView):
 class NotifcationListPagination(PageNumberPagination):
     page_size = 10
     max_page_size = 100
-    page_query_param = "p"
+    page_query_param = "page"
     page_size_query_param = "page_size"
 
 class NotificationListAPIView(ListAPIView):
     serializer_class = NotificationSerializer
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsAuthenticated]
     pagination_class = NotifcationListPagination
 
     def get_queryset(self):
@@ -314,7 +314,7 @@ class DeleteAllNotificationsAPIView(GenericAPIView):
         return Response({"message": f"All {deleted_count} notifications deleted"}, status=status.HTTP_200_OK)
 
 class TestNotificationAPIView(GenericAPIView):
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
