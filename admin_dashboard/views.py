@@ -1,7 +1,8 @@
 from rest_framework import generics
 from rest_framework import permissions
 from rest_framework.response import Response
-from accounts.models import User
+from accounts.models import User, ContactUsMessage
+from accounts.serializers import ContactUsMessageSerializer
 from main.models import UnifiedCampaign, PlatformCampaign, Organization, OrganizationMember
 from rest_framework.permissions import IsAdminUser
 from main.serializers import CampaignSerializer, OrganizationSerializer
@@ -16,6 +17,7 @@ from .utils import get_percentage, get_last_month_objects_count, get_second_last
 from .models import AdminNotificationSettings, AdminReport
 from finance.serializers import PaymentSerializer
 from finance.models import Payment, Subscription, Plan
+from rest_framework import viewsets
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -518,4 +520,9 @@ class PlatformAnalysisAPIView(generics.GenericAPIView):
             'user_growth': user_growth,
             'feature_usage': feature_usage,
         })
+
+class ContactUsMessageViewSet(viewsets.ModelViewSet):
+    queryset = ContactUsMessage.objects.all().order_by('-created_at')
+    serializer_class = ContactUsMessageSerializer
+    permission_classes = [permissions.IsAdminUser]
 

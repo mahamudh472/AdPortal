@@ -1,5 +1,10 @@
 from django.urls import path
 from . import views
+from rest_framework.routers import DefaultRouter
+
+router = DefaultRouter()
+# Register contact us message viewset
+router.register(r'contact-messages', views.ContactUsMessageViewSet, basename='contact-message')
 
 urlpatterns = [
 	path('dashboard/', views.DashboardAPIView.as_view()),
@@ -15,3 +20,5 @@ urlpatterns = [
     path('finance/', views.FinanceOverviewAPIView.as_view(), name='admin-finance-overview'),
     path('platform-analysis/', views.PlatformAnalysisAPIView.as_view(), name='admin-platform-analysis'),
 ]
+urlpatterns += router.urls
+
