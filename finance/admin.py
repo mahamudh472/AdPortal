@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Plan, PlanFeature, Subscription, Payment
+from .models import Plan, PlanFeature, Subscription, Payment, UsageRecord
 
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
@@ -25,3 +25,7 @@ class PaymentAdmin(admin.ModelAdmin):
     search_fields = ('organization__name', 'status')
     list_filter = ('status', 'currency')
     date_hierarchy = 'paid_at'
+
+@admin.register(UsageRecord)
+class UsageRecordAdmin(admin.ModelAdmin):
+    pass
