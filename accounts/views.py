@@ -261,6 +261,16 @@ class NotificationListAPIView(ListAPIView):
     pagination_class = NotifcationListPagination
 
     def get_queryset(self):
+        # filter with read query param if provided
+        read_param = self.request.query_params.get('read')
+        print(f"Filtering notifications with read={read_param}")
+        if read_param is not None:
+            if read_param.lower() == 'true':
+                return Notification.objects.filter(user=self.request.user, read=True).order_by('-created_at')
+            elif read_param.lower() == 'false':
+                return Notification.objects.filter(user=self.request.user, read=False).order_by('-created_at')
+            else:
+                return Notification.objects.filter(user=self.request.user).order_by('-created_at')
         notifications = Notification.objects.filter(user=self.request.user).order_by('-created_at')
         return notifications
     def list(self, request, *args, **kwargs):

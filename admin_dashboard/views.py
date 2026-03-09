@@ -520,9 +520,21 @@ class PlatformAnalysisAPIView(generics.GenericAPIView):
             'user_growth': user_growth,
             'feature_usage': feature_usage,
         })
+class ContactUsMessagePagination(PageNumberPagination):
+    max_page_size = 100
+    page_size = 10
+    page_query_param = 'page'
 
 class ContactUsMessageViewSet(viewsets.ModelViewSet):
     queryset = ContactUsMessage.objects.all().order_by('-created_at')
     serializer_class = ContactUsMessageSerializer
     permission_classes = [permissions.IsAdminUser]
+    pagination_class = ContactUsMessagePagination
 
+    def list(self, request, *args, **kwargs):
+        q = request.query_params.get('search', '')
+        if q:
+            self.queryset = self.queryset.filter(
+                Q(email__icontains=q) | Q(message__icontains=q) | Q(name__icontains=q) | Q(subject__icontains=q)
+            )
+        return super().list(request, *args, **kwargs)
