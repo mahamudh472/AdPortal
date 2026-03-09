@@ -18,6 +18,7 @@ from main.models import (
     Ad,
     IntegrationSyncState,
 )
+from finance.utils import increment_campaign_usage
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ def upsert_campaigns(meta_campaigns, integration):
                 extra_data=meta_campaign.export_all_data(),
                 last_synced_at=timezone.now(),
             )
+            increment_campaign_usage(integration.organization)
 
         # -------------------------------------------------
         # CASE 2: PlatformCampaign exists
@@ -124,6 +126,7 @@ def upsert_campaigns(meta_campaigns, integration):
                 )
 
                 platform_campaign.unified_campaign = unified
+                increment_campaign_usage(integration.organization)
 
             # CASE 2B: unified exists → update it
             else:

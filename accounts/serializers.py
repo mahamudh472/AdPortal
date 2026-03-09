@@ -69,9 +69,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if not self.user.is_active:
             raise serializers.ValidationError("User account is not active.")
         organizations = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE').values_list('snowflake_id', 'name')
+        owned_org = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE', memberships__role='OWNER').exists()
+        if not owned_org and not organizations.exists():
+            raise serializers.ValidationError("User does not belong to any active organization.")
+        if owned_org:
+            selected_organization = Organization.objects.filter(memberships__user=self.user, memberships__status='ACTIVE', memberships__role='OWNER').values_list('snowflake_id', flat=True).first()
+        else:
+            selected_organization = organizations.values_list('snowflake_id', flat=True).first() if organizations.exists() else None
         
-        selected_organization = organizations.first()[0] if organizations else None
-        subscription = Subscription.objects.filter(organization__snowflake_id=selected_organization, status='active').select_related('plan').first() if selected_organization else None
+        subscription = Subscription.objects.filter(organization__snowflake_id=selected_organization, status='active').select_related('plan').last() if selected_organization else None
         if subscription:
             plan_name = subscription.plan.name
             # Returns int for a hard limit, or None when unlimited
@@ -87,8 +93,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                     'plan_name': plan_name if subscription else None,
                     'campaign_limit': campaign_limit if subscription else None,
                     'campaign_used': campaign_used if subscription else None
-                } if subscription else None,
-            }
+                } if subscription else None, }
         )
         return data
 

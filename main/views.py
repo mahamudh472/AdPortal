@@ -18,6 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from .ai_services import generate_ad_copy, generate_copy
 from .mixins import RequiredOrganizationIDMixin
 from finance.models import Subscription, UsageRecord
+from finance.utils import increment_campaign_usage
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
@@ -543,6 +544,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         campaign.status = 'ACTIVE'
         campaign.draft_data = {}
         campaign.save()
+        increment_campaign_usage(organization)
 
 
 @extend_schema(

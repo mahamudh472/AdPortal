@@ -27,6 +27,7 @@ from main.models import (
     Ad,
     IntegrationSyncState,
 )
+from finance.utils import increment_campaign_usage
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ def upsert_tiktok_campaigns(tiktok_campaigns: list[dict], integration) -> list:
                 extra_data=tc,
                 last_synced_at=timezone.now(),
             )
+            increment_campaign_usage(integration.organization)
         else:
             if not platform_campaign.unified_campaign:
                 unified = UnifiedCampaign.objects.create(
@@ -188,6 +190,7 @@ def upsert_tiktok_campaigns(tiktok_campaigns: list[dict], integration) -> list:
                     currency="USD",
                 )
                 platform_campaign.unified_campaign = unified
+                increment_campaign_usage(integration.organization)
             else:
                 unified = platform_campaign.unified_campaign
                 unified.name = campaign_name
