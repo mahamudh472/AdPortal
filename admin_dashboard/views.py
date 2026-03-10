@@ -267,6 +267,16 @@ class ChangeUserStatusAPIView(generics.UpdateAPIView):
             user.status = 'suspended'
 
         user.save()
+
+        # Inform the affected user of the status change
+        from accounts.notifications import notify_user
+        status_messages = {
+            'active': "Your account has been reactivated.",
+            'inactive': "Your account has been deactivated.",
+            'suspended': "Your account has been suspended. Please contact support for assistance.",
+        }
+        notify_user(user, status_messages[new_status])
+
         return Response({"message": f"User status updated to {new_status}."})
 
 

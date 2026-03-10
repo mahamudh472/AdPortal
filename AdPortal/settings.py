@@ -247,6 +247,17 @@ CSRF_TRUSTED_ORIGINS = [
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 HTTP_STRIPE_SIGNATURE = os.getenv("HTTP_STRIPE_SIGNATURE")
 
+# Celery periodic tasks
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    # Every Monday at 09:00 UTC — send weekly performance summaries
+    'weekly-performance-summary': {
+        'task': 'main.tasks.weekly_performance_summary_task',
+        'schedule': crontab(hour=9, minute=0, day_of_week=1),
+    },
+}
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

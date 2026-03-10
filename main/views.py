@@ -168,7 +168,15 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
         # Change permission to allow only owner or admin to delete campaign
         if not instance.organization.memberships.filter(user=self.request.user, role__in=['OWNER', 'ADMIN']).exists():
             raise PermissionDenied("You do not have permission to delete this campaign.")
+        organization = instance.organization
+        campaign_name = instance.name
         instance.delete()
+        from accounts.notifications import notify_org_members
+        notify_org_members(
+            organization,
+            f"Campaign \"{campaign_name}\" has been deleted.",
+            setting_key='campaign_performance',
+        )
 
 
 @extend_schema(
@@ -230,6 +238,14 @@ class CampaignToggleStatusAPIView(RequiredOrganizationIDMixin, generics.GenericA
 
         # Propagate to platforms in the background
         toggle_campaign_status_task.delay(campaign.id, target_status)
+
+        # Notify org owner/admins of the status change
+        from accounts.notifications import notify_org_members
+        notify_org_members(
+            organization,
+            f"Campaign \"{campaign.name}\" status changed to {target_status.lower()}.",
+            setting_key='campaign_performance',
+        )
 
         return Response(
             {
@@ -546,6 +562,14 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         campaign.save()
         increment_campaign_usage(organization)
 
+        # Notify org owner/admins that the campaign is now live
+        from accounts.notifications import notify_org_members
+        notify_org_members(
+            organization,
+            f"Campaign \"{campaign.name}\" has been published and is now live.",
+            setting_key='campaign_performance',
+        )
+
 
 @extend_schema(
     parameters=[
@@ -783,13 +807,36 @@ class UpdateDeleteTeamMemberAPIView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         if instance.role == 'OWNER':
             return Response({'error': 'Cannot modify the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
-        return super().update(request, *args, **kwargs)
+        member_user = instance.user
+        organization = instance.organization
+        old_role = instance.role
+        new_role = request.data.get('role', old_role)
+        response = super().update(request, *args, **kwargs)
+        if member_user and new_role != old_role:
+            from accounts.notifications import notify_user
+            notify_user(
+                member_user,
+                f"Your role in {organization.name} has been updated to {new_role}.",
+                organization=organization,
+                setting_key='team_activity',
+            )
+        return response
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.role == 'OWNER':
             return Response({'error': 'Cannot delete the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
-        return super().destroy(request, *args, **kwargs)
+        member_user = instance.user
+        organization = instance.organization
+        response = super().destroy(request, *args, **kwargs)
+        if member_user:
+            from accounts.notifications import notify_user
+            notify_user(
+                member_user,
+                f"You have been removed from {organization.name}.",
+                setting_key='team_activity',
+            )
+        return response
 
 class TeamInvitationAPIView(generics.GenericAPIView):
     serializer_class = TeamMemberInviteSerializer
@@ -832,7 +879,23 @@ class TeamInvitationAPIView(generics.GenericAPIView):
         except Exception as e:
             print(f"Invitation email failed: {str(e)}")
             # Continue even if email fails
-        
+
+        # In-app notification: if the invitee already has an account, notify them
+        from accounts.notifications import notify_user, notify_org_members
+        if user:
+            notify_user(
+                user,
+                f"You have been invited to join {organization.name} as {role} by {request.user.full_name or request.user.email}.",
+                organization=organization,
+                setting_key='team_activity',
+            )
+        # Notify org owner/admins that an invitation was sent
+        notify_org_members(
+            organization,
+            f"{email} has been invited to join the organization as {role}.",
+            setting_key='team_activity',
+        )
+
         return Response({'message': 'Invitation sent successfully'}, status=status.HTTP_200_OK)
 
 
@@ -876,7 +939,22 @@ class InvitationAcceptAPIView(APIView):
         )
         invitation.status = 'ACCEPTED'
         invitation.save()
-        
+
+        # Notify org owner/admins of the new member, and the inviter specifically
+        from accounts.notifications import notify_org_members, notify_user
+        notify_org_members(
+            invitation.organization,
+            f"{user.email} has joined the organization as {invitation.role}.",
+            setting_key='team_activity',
+        )
+        if invitation.invited_by and invitation.invited_by != user:
+            notify_user(
+                invitation.invited_by,
+                f"{user.email} accepted your invitation to join {invitation.organization.name}.",
+                organization=invitation.organization,
+                setting_key='team_activity',
+            )
+
         return Response({'message': f'You have successfully joined the organization {invitation.organization.name} as a {invitation.role}.'}, status=status.HTTP_200_OK)
 
 class IntegrationStatusAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):

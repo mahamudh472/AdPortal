@@ -17,6 +17,12 @@ def user_creation_handler(sender, instance, created, **kwargs):
 			role=OrganizationRole.OWNER,
 			status='ACTIVE'
 		)
+		# Notify all admins of the new signup (respects AdminNotificationSettings)
+		from accounts.notifications import notify_admins
+		notify_admins(
+			f"New user signed up: {instance.email}",
+			setting_key='new_user_signup',
+		)
 
 @receiver(post_save, sender=Notification)
 def notification_creation_handler(sender, instance, created, **kwargs):
@@ -37,3 +43,16 @@ def notification_creation_handler(sender, instance, created, **kwargs):
                 }
             }
         )
+
+
+@receiver(post_save, sender='main.AIInsight')
+def ai_insight_creation_handler(sender, instance, created, **kwargs):
+    """Notify org OWNER/ADMIN members when a new AI recommendation is created."""
+    if not created:
+        return
+    from accounts.notifications import notify_org_members
+    notify_org_members(
+        instance.organization,
+        f"New AI recommendation for campaign \"{instance.campaign.name}\": {instance.title}",
+        setting_key='ai_recommendations',
+    )

@@ -62,11 +62,56 @@ class StripeWebhookView(View):
                     raw_payload=session
                 )
                 print(f"Created payment {payment.id} for subscription {subscription.id} and organization {organization_id}")
+
+                # Notify org owner/admins that the subscription is now active
+                from accounts.notifications import notify_org_members
+                notify_org_members(
+                    organization,
+                    f"Your subscription to the {subscription.plan.name} plan has been activated successfully.",
+                )
+
             except Subscription.DoesNotExist:
                 print(f"No incomplete subscription found for organization {organization_id} and plan {plan_id}")
                 pass
             except Payment.DoesNotExist:
                 print(f"Failed to create payment for organization {organization_id} and subscription {subscription.id}")
                 pass
+
+        elif event['type'] == 'invoice.payment_failed':
+            invoice = event['data']['object']
+            stripe_subscription_id = invoice.get('subscription')
+
+            if stripe_subscription_id:
+                subscription = Subscription.objects.filter(
+                    stripe_subscription_id=stripe_subscription_id
+                ).select_related('organization', 'plan').first()
+
+                if subscription:
+                    organization = subscription.organization
+                    amount_due = invoice.get('amount_due', 0) / 100  # cents → dollars
+
+                    Payment.objects.create(
+                        organization=organization,
+                        subscription=subscription,
+                        amount=amount_due,
+                        status='failed',
+                        stripe_invoice_id=invoice.get('id'),
+                        raw_payload=invoice,
+                    )
+
+                    # Notify org owner/admins to update their payment method
+                    from accounts.notifications import notify_org_members, notify_admins
+                    notify_org_members(
+                        organization,
+                        f"A payment of ${amount_due:.2f} failed for your {subscription.plan.name} subscription. "
+                        "Please update your payment method to avoid service interruption.",
+                        setting_key='budget_alerts',
+                    )
+                    # Notify platform admins
+                    notify_admins(
+                        f"Payment failed for organization \"{organization.name}\" "
+                        f"(plan: {subscription.plan.name}, amount: ${amount_due:.2f}).",
+                        setting_key='failed_payment',
+                    )
 
         return HttpResponse(status=200)

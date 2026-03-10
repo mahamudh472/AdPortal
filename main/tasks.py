@@ -84,6 +84,12 @@ def sync_ads_task(self, platform_integration_id):
             return
     except Exception as exc:
         logger.error("sync_ads_task failed for integration %s: %s", platform_integration_id, exc)
+        from accounts.notifications import notify_admins
+        notify_admins(
+            f"Platform sync failed for {platform_integration.platform} integration "
+            f"(account: {platform_integration.ad_account_id}): {exc}",
+            setting_key='system_errors',
+        )
         self.retry(exc=exc, countdown=60)
 
 
@@ -125,3 +131,56 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
     except Exception as exc:
         logger.error("sync_analytics_task failed for integration %s: %s", platform_integration_id, exc)
         self.retry(exc=exc, countdown=60)
+
+
+@shared_task
+def weekly_performance_summary_task():
+    """
+    Sent every Monday morning to org members who have enabled
+    NotificationSetting.weekly_performance_summary.
+
+    Aggregates last 7 days of AnalysisDaily spend / impressions / clicks per
+    organisation and creates one in-app notification per qualifying member.
+    """
+    from datetime import timedelta
+    from django.db.models import Sum
+    from django.utils import timezone
+    from analysis.models import AnalysisDaily
+    from main.models import Organization
+    from accounts.notifications import notify_org_members
+
+    end_date = timezone.now().date()
+    start_date = end_date - timedelta(days=7)
+
+    organizations = Organization.objects.all()
+    for organization in organizations:
+        weekly_qs = AnalysisDaily.objects.filter(
+            organization=organization,
+            date__gte=start_date,
+            date__lte=end_date,
+        )
+        if not weekly_qs.exists():
+            continue
+
+        totals = weekly_qs.aggregate(
+            total_spend=Sum('spend'),
+            total_impressions=Sum('impressions'),
+            total_clicks=Sum('clicks'),
+        )
+        spend = totals['total_spend'] or 0
+        impressions = totals['total_impressions'] or 0
+        clicks = totals['total_clicks'] or 0
+
+        message = (
+            f"Weekly Performance Summary ({start_date} – {end_date}): "
+            f"Spend: ${spend:,.2f} | Impressions: {impressions:,} | Clicks: {clicks:,}."
+        )
+        notify_org_members(
+            organization,
+            message,
+            setting_key='weekly_performance_summary',
+            roles=['OWNER', 'ADMIN', 'MEMBER'],
+        )
+        logger.info(
+            "weekly_performance_summary_task: sent summary for org %s", organization.id
+        )
