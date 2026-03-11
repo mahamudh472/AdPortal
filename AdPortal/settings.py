@@ -240,7 +240,8 @@ CSRF_TRUSTED_ORIGINS = [
     'http://10.10.13.88:5173',
     'http://10.10.13.88:5174',
     'http://localhost:5175',
-    'https://adportal-website-by-kuzkuzma.netlify.app'
+    'https://adportal-website-by-kuzkuzma.netlify.app',
+    'https://sisterlike-tastelessly-mike.ngrok-free.dev'
 ]
 
 
