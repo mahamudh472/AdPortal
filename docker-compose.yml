@@ -80,16 +80,27 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     environment:
       FRONTEND_HOSTS: ${FRONTEND_HOSTS:-localhost useadportal.com www.useadportal.com}
       API_HOSTS: ${API_HOSTS:-api.useadportal.com}
+      CERT_NAME: ${CERT_NAME:-useadportal.com}
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
       - ./frontend:/app/frontend:ro
       - staticfiles:/app/staticfiles:ro
       - media:/app/media:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
     depends_on:
       - web
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: "no"
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
 
 volumes:
   postgres_data:
@@ -97,3 +108,5 @@ volumes:
   staticfiles:
   media:
   logs:
+  letsencrypt:
+  certbot_webroot:

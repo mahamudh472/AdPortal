@@ -244,6 +244,19 @@ CSRF_TRUSTED_ORIGINS = [
     'https://sisterlike-tastelessly-mike.ngrok-free.dev'
 ]
 
+extra_csrf_trusted_origins = [
+    origin.strip()
+    for origin in os.getenv('CSRF_TRUSTED_ORIGINS_EXTRA', '').split(',')
+    if origin.strip()
+]
+CSRF_TRUSTED_ORIGINS += extra_csrf_trusted_origins
+
+USE_HTTPS = os.getenv('USE_HTTPS', 'False') == 'True'
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = USE_HTTPS
+CSRF_COOKIE_SECURE = USE_HTTPS
+SECURE_SSL_REDIRECT = USE_HTTPS
+
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 HTTP_STRIPE_SIGNATURE = os.getenv("HTTP_STRIPE_SIGNATURE")
