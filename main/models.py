@@ -414,7 +414,7 @@ class AIInsight(models.Model):
     campaign = models.ForeignKey(UnifiedCampaign, on_delete=models.CASCADE, related_name="ai_insights")
     title = models.CharField(max_length=255)
     description = models.TextField()
-    impect = models.CharField(max_length=20, choices=[('HIGH', 'High'), ('MEDIUM', 'Medium'), ('LOW', 'Low')], default='MEDIUM')
+    impact = models.CharField(max_length=20, choices=[('HIGH', 'High'), ('MEDIUM', 'Medium'), ('LOW', 'Low')], default='MEDIUM')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -71,14 +71,14 @@ class DashboardAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 campaign=test_campaign,
                 title="Test Insight 1",
                 description="This is a test insight.",
-                impect="HIGH"
+                impact="HIGH"
             )
             _ = AIInsight.objects.create(
                 organization=organization,
                 campaign=test_campaign,
                 title="Test Insight 2",
                 description="This is another test insight.",
-                impect="MEDIUM"
+                impact="MEDIUM"
             )
         data = get_dashboard_data(organization.snowflake_id)
         return Response(data, status=status.HTTP_200_OK)

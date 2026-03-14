@@ -461,4 +461,4 @@ class TeamMemberInviteSerializer(serializers.Serializer):
 class AIInsightSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIInsight
-        fields = ['id', 'title', 'description', 'created_at', 'impect']
+        fields = ['id', 'title', 'description', 'created_at', 'impact']

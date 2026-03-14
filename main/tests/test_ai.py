@@ -97,7 +97,7 @@ class AIInsightListTests(MainTestBase):
             campaign=campaign,
             title="Test Insight",
             description="Some insight",
-            impect="HIGH",
+            impact="HIGH",
         )
         res = self.client.get(self._url(), {"org_id": self.org_id})
         self.assertEqual(res.status_code, 200)

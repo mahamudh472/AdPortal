@@ -3,6 +3,9 @@ from main.utils.meta_engine.sync_ad import sync_meta_integration
 from main.utils.tiktok_engine.sync_ad import sync_tiktok_integration
 from main.models import AdIntegration
 import logging
+from datetime import timedelta
+from django.utils import timezone
+from django.db.models import Sum, Avg
 
 logger = logging.getLogger(__name__)
 
@@ -183,4 +186,180 @@ def weekly_performance_summary_task():
         )
         logger.info(
             "weekly_performance_summary_task: sent summary for org %s", organization.id
+        )
+
+
+@shared_task(bind=True, max_retries=3)
+def generate_ai_insights_for_active_campaigns(self):
+    """
+    Periodic background task that processes every ACTIVE UnifiedCampaign.
+
+    For each campaign it:
+    1. Collects the last 7 days of AnalysisDaily records (aggregated per
+       platform and per adgroup).
+    2. Builds a structured `campaign_data` dict that mirrors the format
+       expected by `run_optimization_analysis`.
+    3. Calls `run_optimization_analysis` (GPT-4o powered).
+    4. Persists each returned optimisation card as an AIInsight row.
+
+    Intended to be scheduled via Celery Beat (e.g. daily or weekly).
+    """
+    from main.models import UnifiedCampaign, AIInsight
+    from main.ai_services import run_optimization_analysis
+    from analysis.models import AnalysisDaily
+
+    end_date   = timezone.now().date()
+    start_date = end_date - timedelta(days=7)
+
+    # Map the text labels returned by GPT-4o to the model's valid choices.
+    IMPACT_MAP = {
+        "high":   "HIGH",
+        "medium": "MEDIUM",
+        "low":    "LOW",
+    }
+
+    active_campaigns = UnifiedCampaign.objects.filter(
+        status="ACTIVE"
+    ).select_related("organization")
+
+    if not active_campaigns.exists():
+        logger.info("generate_ai_insights_for_active_campaigns: no active campaigns found.")
+        return
+
+    for campaign in active_campaigns:
+        logger.info(
+            "generate_ai_insights_for_active_campaigns: processing campaign id=%s name='%s'",
+            campaign.id, campaign.name,
+        )
+
+        # ── 1. Pull the last-7-days analytics rows for this campaign ──────────
+        analytics_qs = AnalysisDaily.objects.filter(
+            unified_campaign=campaign,
+            date__gte=start_date,
+            date__lte=end_date,
+        )
+
+        if not analytics_qs.exists():
+            logger.info(
+                "generate_ai_insights_for_active_campaigns: no analytics data for campaign %s — skipping",
+                campaign.id,
+            )
+            continue
+
+        # ── 2. Aggregate totals across all platforms for the overview ─────────
+        totals = analytics_qs.aggregate(
+            total_spend=Sum("spend"),
+            total_impressions=Sum("impressions"),
+            total_clicks=Sum("clicks"),
+            total_conversions=Sum("conversions"),
+            avg_ctr=Avg("ctr"),
+            avg_cpc=Avg("cpc"),
+            avg_cpm=Avg("cpm"),
+            avg_cpa=Avg("cpa"),
+            avg_roas=Avg("roas"),
+        )
+
+        # ── 3. Build per-platform breakdown ───────────────────────────────────
+        platform_breakdown = {}
+        for row in analytics_qs.values(
+            "platform", "campaign_id", "campaign_name",
+        ).annotate(
+            spend=Sum("spend"),
+            impressions=Sum("impressions"),
+            clicks=Sum("clicks"),
+            conversions=Sum("conversions"),
+            avg_ctr=Avg("ctr"),
+            avg_cpc=Avg("cpc"),
+            avg_cpm=Avg("cpm"),
+            avg_cpa=Avg("cpa"),
+            avg_roas=Avg("roas"),
+        ):
+            platform = row["platform"]
+            if platform not in platform_breakdown:
+                platform_breakdown[platform] = []
+            platform_breakdown[platform].append({
+                "campaign_id":   row["campaign_id"],
+                "campaign_name": row["campaign_name"],
+                "spend":         round(row["spend"] or 0, 2),
+                "impressions":   row["impressions"] or 0,
+                "clicks":        row["clicks"] or 0,
+                "conversions":   row["conversions"] or 0,
+                "avg_ctr":       round(row["avg_ctr"] or 0, 4),
+                "avg_cpc":       round(row["avg_cpc"] or 0, 2),
+                "avg_cpm":       round(row["avg_cpm"] or 0, 2),
+                "avg_cpa":       round(row["avg_cpa"] or 0, 2),
+                "avg_roas":      round(row["avg_roas"] or 0, 2),
+            })
+
+        # ── 4. Assemble the campaign_data payload ─────────────────────────────
+        campaign_data = {
+            "campaign_overview": {
+                "campaign_id":   str(campaign.id),
+                "name":          campaign.name,
+                "objective":     campaign.objective,
+                "status":        campaign.status,
+                "currency":      campaign.currency,
+                "date_range":    {"start": str(start_date), "end": str(end_date)},
+            },
+            "summary": {
+                "total_spend":       round(totals["total_spend"] or 0, 2),
+                "total_impressions": totals["total_impressions"] or 0,
+                "total_clicks":      totals["total_clicks"] or 0,
+                "total_conversions": totals["total_conversions"] or 0,
+                "avg_ctr":           round(totals["avg_ctr"] or 0, 4),
+                "avg_cpc":           round(totals["avg_cpc"] or 0, 2),
+                "avg_cpm":           round(totals["avg_cpm"] or 0, 2),
+                "avg_cpa":           round(totals["avg_cpa"] or 0, 2),
+                "avg_roas":          round(totals["avg_roas"] or 0, 2),
+            },
+            "platform_breakdown": platform_breakdown,
+        }
+
+        # ── 5. Run the AI optimisation analysis ───────────────────────────────
+        try:
+            result = run_optimization_analysis(campaign_data)
+        except Exception as exc:
+            logger.error(
+                "generate_ai_insights_for_active_campaigns: AI analysis failed for campaign %s: %s",
+                campaign.id, exc,
+            )
+            try:
+                self.retry(exc=exc, countdown=120)
+            except self.MaxRetriesExceededError:
+                pass
+            continue
+
+        if result.get("status") != "success":
+            logger.warning(
+                "generate_ai_insights_for_active_campaigns: AI returned non-success for campaign %s: %s",
+                campaign.id, result.get("message"),
+            )
+            continue
+
+        # ── 6. Persist each optimisation card as an AIInsight ─────────────────
+        optimizations = result.get("optimizations", [])
+        insights_created = 0
+
+        for opt in optimizations:
+            impact_raw = str(opt.get("impact", "medium")).lower()
+            impact     = IMPACT_MAP.get(impact_raw, "MEDIUM")
+
+            # Combine observation + recommendation as the description.
+            description = (
+                f"{opt.get('observation', '')}\n\n"
+                f"Recommendation: {opt.get('recommendation', '')}"
+            ).strip()
+
+            AIInsight.objects.create(
+                organization=campaign.organization,
+                campaign=campaign,
+                title=opt.get("subject", "AI Optimisation Insight"),
+                description=description,
+                impact=impact,
+            )
+            insights_created += 1
+
+        logger.info(
+            "generate_ai_insights_for_active_campaigns: created %d insights for campaign id=%s",
+            insights_created, campaign.id,
         )

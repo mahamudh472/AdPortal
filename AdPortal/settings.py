@@ -270,6 +270,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'main.tasks.weekly_performance_summary_task',
         'schedule': crontab(hour=9, minute=0, day_of_week=1),
     },
+    # Every day at 02:00 UTC — generate AI insights for all active campaigns
+    'daily-ai-insights-for-active-campaigns': {
+        'task': 'main.tasks.generate_ai_insights_for_active_campaigns',
+        'schedule': crontab(hour=2, minute=0),
+    },
 }
 
 LOGGING = {
