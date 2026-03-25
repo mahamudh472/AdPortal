@@ -1,6 +1,7 @@
 from celery import shared_task
 from main.utils.meta_engine.sync_ad import sync_meta_integration
 from main.utils.tiktok_engine.sync_ad import sync_tiktok_integration
+from main.utils.google_engine.sync_ad import sync_google_integration
 from main.models import AdIntegration
 import logging
 from datetime import timedelta
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: str):
     """
     Background task that propagates a PAUSE / ACTIVE toggle to every
-    connected ad platform (META, TIKTOK).  Google is skipped until supported.
+    connected ad platform (META, TIKTOK, GOOGLE).
 
     Args:
         unified_campaign_id: PK of the UnifiedCampaign.
@@ -22,6 +23,7 @@ def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: s
     """
     from main.utils.meta_engine.manage_ad import toggle_campaign_status_on_meta
     from main.utils.tiktok_engine.manage_ad import toggle_campaign_status_on_tiktok
+    from main.utils.google_engine.manage_ad import toggle_campaign_status_on_google
     from main.models import PlatformCampaign
 
     logger.info(
@@ -44,6 +46,8 @@ def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: s
                 errs = toggle_campaign_status_on_meta(unified_campaign_id, target_status)
             elif platform == "TIKTOK":
                 errs = toggle_campaign_status_on_tiktok(unified_campaign_id, target_status)
+            elif platform == "GOOGLE":
+                errs = toggle_campaign_status_on_google(unified_campaign_id, target_status)
             else:
                 logger.info("toggle_campaign_status_task: skipping unsupported platform %s", platform)
                 continue
@@ -82,6 +86,9 @@ def sync_ads_task(self, platform_integration_id):
         elif platform_integration.platform.upper() == 'TIKTOK':
             sync_tiktok_integration(platform_integration)
             logger.info("TikTok sync completed for integration %s", platform_integration_id)
+        elif platform_integration.platform.upper() == 'GOOGLE':
+            sync_google_integration(platform_integration)
+            logger.info("Google sync completed for integration %s", platform_integration_id)
         else:
             logger.warning("Unsupported platform: %s — skipping", platform_integration.platform)
             return
@@ -126,6 +133,10 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
         elif integration.platform.upper() == 'TIKTOK':
             from main.utils.tiktok_engine.analysis import generate_tiktok_campaign_analysis
             generate_tiktok_campaign_analysis(integration, sd, ed)
+
+        elif integration.platform.upper() == 'GOOGLE':
+            from main.utils.google_engine.analysis import generate_google_campaign_analysis
+            generate_google_campaign_analysis(integration, sd, ed)
 
         else:
             logger.warning("sync_analytics_task: unsupported platform %s — skipping", integration.platform)
