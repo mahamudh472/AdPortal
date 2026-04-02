@@ -97,12 +97,23 @@ services:
 
   certbot:
     image: certbot/certbot:latest
-    restart: "no"
-    ports:
-      - "80:80"
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: >
+      sh -c "certbot certonly --webroot -w /var/www/certbot
+      --email ${CERTBOT_EMAIL}
+      --agree-tos --no-eff-email
+      -d ${CERTBOT_DOMAINS}
+      && while :; do
+      certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h;
+      done"
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
+    depends_on:
+      - nginx
 
 volumes:
   postgres_data:
