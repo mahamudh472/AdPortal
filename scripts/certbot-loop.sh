@@ -33,14 +33,23 @@ if [ -n "${CERT_NAME:-}" ]; then
   cert_name_args="--cert-name $CERT_NAME"
 fi
 
-# shellcheck disable=SC2086
-certbot certonly --webroot -w /var/www/certbot \
-  --email "$CERTBOT_EMAIL" \
-  --agree-tos --no-eff-email \
-  --non-interactive \
-  --keep-until-expiring \
-  $cert_name_args \
-  $domain_args
+cert_lookup_name="${CERT_NAME:-}"
+if [ -z "$cert_lookup_name" ]; then
+  cert_lookup_name=$(echo "$CERTBOT_DOMAINS" | cut -d',' -f1 | xargs)
+fi
+
+if [ -n "$cert_lookup_name" ] && [ -f "/etc/letsencrypt/live/$cert_lookup_name/fullchain.pem" ]; then
+  echo "Existing certificate found for $cert_lookup_name; skipping initial certonly."
+else
+  # shellcheck disable=SC2086
+  certbot certonly --webroot -w /var/www/certbot \
+    --email "$CERTBOT_EMAIL" \
+    --agree-tos --no-eff-email \
+    --non-interactive \
+    --keep-until-expiring \
+    $cert_name_args \
+    $domain_args
+fi
 
 while :; do
   certbot renew --webroot -w /var/www/certbot --quiet || true
