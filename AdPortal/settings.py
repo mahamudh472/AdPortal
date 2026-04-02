@@ -113,10 +113,23 @@ else:
         }
     }
 
+# Centralize Redis connection details so all services (cache/channels/celery)
+# use the same host/port resolution.
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost').strip()
+REDIS_PORT = os.getenv('REDIS_PORT', '6379').strip()
+RUNNING_IN_DOCKER = os.path.exists('/.dockerenv')
+
+# In Docker Compose, localhost points to the current container, not the Redis service.
+if RUNNING_IN_DOCKER and REDIS_HOST in {'localhost', '127.0.0.1', '::1'}:
+    REDIS_HOST = 'redis'
+
+REDIS_CACHE_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
+REDIS_BROKER_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/1",
+        'LOCATION': REDIS_CACHE_LOCATION,
     }
 }
 
@@ -126,8 +139,8 @@ CHANNEL_LAYERS = {
         'config': {
             'hosts': [
                 (
-                    os.getenv('REDIS_HOST', 'redis'),
-                    int(os.getenv('REDIS_PORT', '6379')),
+                    REDIS_HOST,
+                    int(REDIS_PORT),
                 )
             ]
         }
@@ -327,8 +340,8 @@ LOGGING = {
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 # Celery Configuration
-CELERY_BROKER_URL = f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0"
-CELERY_RESULT_BACKEND = f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0"
+CELERY_BROKER_URL = REDIS_BROKER_LOCATION
+CELERY_RESULT_BACKEND = REDIS_BROKER_LOCATION
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
