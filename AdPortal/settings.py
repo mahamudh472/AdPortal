@@ -141,7 +141,7 @@ CACHES = {
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'config': {
+        'CONFIG': {
             'hosts': [REDIS_BROKER_LOCATION],
         }
     }
