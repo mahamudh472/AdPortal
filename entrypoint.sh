@@ -23,16 +23,16 @@ except Exception as e:
     done
 fi
 
-# Make migrations
-echo "Making migrations..."
-python manage.py makemigrations --noinput
-
-echo "Running migrations..."
-python manage.py migrate --noinput
-
-# Only collect static for the web process
+# Run one-time Django maintenance only for the web process.
+# This avoids redundant migration work in celery/beat containers.
 case "$*" in
   *daphne*)
+        echo "Making migrations..."
+        python manage.py makemigrations --noinput
+
+        echo "Running migrations..."
+        python manage.py migrate --noinput
+
     echo "Collecting static files..."
     python manage.py collectstatic --noinput --clear
     ;;

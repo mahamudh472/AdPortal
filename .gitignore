@@ -31,9 +31,7 @@ staticfiles/
 media/
 local_settings.py
 
-# Migrations (optional, keep if you want versioned migrations)
-*/migrations/*
-!*/migrations/__init__.py
+# Migrations should be versioned in git for reproducible deploys.
 
 # Byte-compiled / cache
 *.pyc

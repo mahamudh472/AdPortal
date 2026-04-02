@@ -86,17 +86,21 @@ def upsert_campaigns(meta_campaigns, integration):
             platform_campaign_id=meta_campaign["id"]
         ).select_related("unified_campaign").first()
 
+        defaults = {
+            "objective": map_meta_objective(meta_campaign.get("objective")),
+            "status": meta_campaign.get("status"),
+            "currency": "USD",
+        }
+
         # -------------------------------------------------
         # CASE 1: PlatformCampaign DOES NOT exist
         # -------------------------------------------------
         if not platform_campaign:
 
-            unified = UnifiedCampaign.objects.create(
+            unified, created_unified = UnifiedCampaign.objects.update_or_create(
                 organization=integration.organization,
                 name=meta_campaign["name"],
-                objective=map_meta_objective(meta_campaign.get("objective")),
-                status=meta_campaign.get("status"),
-                currency="USD",
+                defaults=defaults,
             )
 
             platform_campaign = PlatformCampaign.objects.create(
@@ -107,7 +111,8 @@ def upsert_campaigns(meta_campaigns, integration):
                 extra_data=meta_campaign.export_all_data(),
                 last_synced_at=timezone.now(),
             )
-            increment_campaign_usage(integration.organization)
+            if created_unified:
+                increment_campaign_usage(integration.organization)
 
         # -------------------------------------------------
         # CASE 2: PlatformCampaign exists
@@ -117,16 +122,15 @@ def upsert_campaigns(meta_campaigns, integration):
             # CASE 2A: unified_campaign missing → create one
             if not platform_campaign.unified_campaign:
 
-                unified = UnifiedCampaign.objects.create(
+                unified, created_unified = UnifiedCampaign.objects.update_or_create(
                     organization=integration.organization,
                     name=meta_campaign["name"],
-                    objective=map_meta_objective(meta_campaign.get("objective")),
-                    status=meta_campaign.get("status"),
-                    currency="USD",
+                    defaults=defaults,
                 )
 
                 platform_campaign.unified_campaign = unified
-                increment_campaign_usage(integration.organization)
+                if created_unified:
+                    increment_campaign_usage(integration.organization)
 
             # CASE 2B: unified exists → update it
             else:
