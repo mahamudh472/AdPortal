@@ -28,10 +28,18 @@ if [ -z "$domain_args" ]; then
   exit 1
 fi
 
+cert_name_args=""
+if [ -n "${CERT_NAME:-}" ]; then
+  cert_name_args="--cert-name $CERT_NAME"
+fi
+
 # shellcheck disable=SC2086
 certbot certonly --webroot -w /var/www/certbot \
   --email "$CERTBOT_EMAIL" \
   --agree-tos --no-eff-email \
+  --non-interactive \
+  --keep-until-expiring \
+  $cert_name_args \
   $domain_args
 
 while :; do
