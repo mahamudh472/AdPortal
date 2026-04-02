@@ -100,19 +100,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      certbot certonly --webroot -w /var/www/certbot \
-        --email ${CERTBOT_EMAIL} \
-        --agree-tos --no-eff-email \
-        --domains ${CERTBOT_DOMAINS}
-      while :; do
-        certbot renew --webroot -w /var/www/certbot --quiet
-        sleep 12h
-      done
+    entrypoint: ["/bin/sh", "/certbot-loop.sh"]
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
+      - ./scripts/certbot-loop.sh:/certbot-loop.sh:ro
     depends_on:
       - nginx
 
