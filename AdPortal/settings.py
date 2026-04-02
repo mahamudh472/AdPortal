@@ -137,12 +137,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'config': {
-            'hosts': [
-                (
-                    REDIS_HOST,
-                    int(REDIS_PORT),
-                )
-            ]
+            'hosts': [REDIS_BROKER_LOCATION],
         }
     }
 }
