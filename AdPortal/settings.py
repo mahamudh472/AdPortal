@@ -13,7 +13,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import os, datetime
 from dotenv import load_dotenv
-load_dotenv()
+
+# In Docker, rely on container environment variables from compose/env_file.
+# This avoids conflicts with any stale or malformed /app/.env baked into images.
+if not os.path.exists('/.dockerenv'):
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -123,13 +127,14 @@ RUNNING_IN_DOCKER = os.path.exists('/.dockerenv')
 if RUNNING_IN_DOCKER and REDIS_HOST in {'localhost', '127.0.0.1', '::1'}:
     REDIS_HOST = 'redis'
 
+REDIS_URL = os.getenv('REDIS_URL', f"redis://{REDIS_HOST}:{REDIS_PORT}/0").strip()
 REDIS_CACHE_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
-REDIS_BROKER_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+REDIS_BROKER_LOCATION = REDIS_URL
 
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': REDIS_CACHE_LOCATION,
+        'LOCATION': REDIS_URL.rsplit('/', 1)[0] + '/1',
     }
 }
 
