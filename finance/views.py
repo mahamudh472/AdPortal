@@ -67,7 +67,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
         session = stripe.checkout.Session.create(
             ui_mode='embedded',
             # Let Stripe choose payment methods based on customer region and eligibility.
-            automatic_payment_methods={'enabled': True},
+            # automatic_payment_methods={'enabled': True},
             line_items=[{
                 # Add multiple items
                 'price_data': {
