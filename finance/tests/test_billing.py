@@ -9,12 +9,14 @@ from unittest.mock import MagicMock, patch
 from finance.tests.base import FinanceTestBase
 
 BASE = "/api/v1/finance"
-FAKE_SESSION_URL = "https://checkout.stripe.com/pay/fake_session_id"
+FAKE_SESSION_ID = "cs_test_fake_session_id"
+FAKE_CLIENT_SECRET = "cs_test_fake_session_id_secret_123"
 
 
 def _mock_stripe_session():
     sess = MagicMock()
-    sess.url = FAKE_SESSION_URL
+    sess.id = FAKE_SESSION_ID
+    sess.client_secret = FAKE_CLIENT_SECRET
     return sess
 
 
@@ -25,13 +27,21 @@ class BuyPlanTests(FinanceTestBase):
         return f"{BASE}/buy-plan/?org_id={self.org_id}"
 
     @patch("finance.views.stripe.checkout.Session.create", return_value=_mock_stripe_session())
-    def test_buy_plan_success_returns_checkout_url(self, mock_stripe):
+    def test_buy_plan_success_returns_embedded_checkout_data(self, mock_stripe):
         plan = self.create_plan("starter")
         res = self.client.post(self._url(), {"plan_id": plan.id}, format="json")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("checkout_url", res.data)
-        self.assertEqual(res.data["checkout_url"], FAKE_SESSION_URL)
+        self.assertIn("checkout_session_id", res.data)
+        self.assertIn("client_secret", res.data)
+        self.assertEqual(res.data["checkout_session_id"], FAKE_SESSION_ID)
+        self.assertEqual(res.data["client_secret"], FAKE_CLIENT_SECRET)
         mock_stripe.assert_called_once()
+
+        stripe_kwargs = mock_stripe.call_args.kwargs
+        self.assertEqual(stripe_kwargs.get("ui_mode"), "embedded")
+        self.assertEqual(stripe_kwargs.get("automatic_payment_methods"), {"enabled": True})
+        self.assertIn("return_url", stripe_kwargs)
+        self.assertNotIn("payment_method_types", stripe_kwargs)
 
     @patch("finance.views.stripe.checkout.Session.create", return_value=_mock_stripe_session())
     def test_buy_plan_already_active_subscription_returns_200_exists_msg(self, mock_stripe):

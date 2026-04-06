@@ -65,7 +65,9 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
         print(f"Created subscription {subscription.id} for organization {organization_snowflake_id} and plan {plan.first().name}")
 
         session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
+            ui_mode='embedded',
+            # Let Stripe choose payment methods based on customer region and eligibility.
+            automatic_payment_methods={'enabled': True},
             line_items=[{
                 # Add multiple items
                 'price_data': {
@@ -79,8 +81,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
                 'quantity': 1
             }],
             mode='subscription',
-            success_url= settings.FRONTEND_URL + '/payment/success',
-            cancel_url= settings.FRONTEND_URL + '/payment/cancel',
+            return_url=settings.FRONTEND_URL + '/payment/return?session_id={CHECKOUT_SESSION_ID}',
             metadata={
                 'plan_id': str(plan.first().id),
                 'organization_id': str(organization_snowflake_id),
@@ -88,7 +89,13 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
             }
         )
 
-        return Response({'checkout_url': session.url}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                'checkout_session_id': session.id,
+                'client_secret': session.client_secret,
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 
