@@ -97,24 +97,55 @@ def fetch_google_ads_account(organization):
         return None
 
     access_token = ad_profile.access_token
+    developer_token = getattr(settings, "GOOGLE_ADS_DEVELOPER_TOKEN", None)
+    if not developer_token:
+        return {
+            "error": "Google Ads developer token is not configured.",
+            "status_code": status.HTTP_400_BAD_REQUEST,
+        }
 
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+        "developer-token": developer_token,
         "Content-Type": "application/json",
     }
 
-    response = requests.post(
-        "https://googleads.googleapis.com/v16/customers:listAccessibleCustomers",
-        headers=headers,
-        json={},   # Required even if empty
-        timeout=10
-    )
+    try:
+        response = requests.post(
+            "https://googleads.googleapis.com/v16/customers:listAccessibleCustomers",
+            headers=headers,
+            json={},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return {
+            "error": "Unable to reach Google Ads API.",
+            "status_code": status.HTTP_502_BAD_GATEWAY,
+        }
 
-    print(response.status_code)
-    print(response.text)
+    try:
+        payload = response.json()
+    except ValueError:
+        return {
+            "error": "Google Ads API returned a non-JSON response.",
+            "status_code": status.HTTP_502_BAD_GATEWAY,
+            "raw_response": response.text[:500],
+        }
 
-    return response.json().get("resourceNames", [])
+    if response.status_code >= 400:
+        return {
+            "error": "Google Ads API request failed.",
+            "status_code": response.status_code,
+            "details": payload,
+        }
+
+    resource_names = payload.get("resourceNames", [])
+    data = []
+    for resource_name in resource_names:
+        account_id = resource_name.split("/")[-1]
+        data.append({"acc_id": account_id, "resource_name": resource_name})
+
+    return {"data": data}
 
 
 class MetaConnect(RequiredOrganizationIDMixin, APIView):
@@ -415,6 +446,13 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
             profiles = fetch_google_ads_account(organization)
         else:
             return Response({'error': 'Unsupported platform'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profiles is None:
+            return Response({'error': f'{platform} integration not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if isinstance(profiles, dict) and profiles.get("error"):
+            response_status = profiles.get("status_code", status.HTTP_400_BAD_REQUEST)
+            return Response(profiles, status=response_status)
 
         return Response(profiles)
 
