@@ -98,11 +98,17 @@ def fetch_google_ads_account(organization):
 
     access_token = ad_profile.access_token
     developer_token = getattr(settings, "GOOGLE_ADS_DEVELOPER_TOKEN", None)
+    api_version = getattr(settings, "GOOGLE_ADS_API_VERSION", "v18")
     if not developer_token:
         return {
             "error": "Google Ads developer token is not configured.",
             "status_code": status.HTTP_400_BAD_REQUEST,
         }
+
+    endpoint = (
+        f"https://googleads.googleapis.com/{api_version}/"
+        "customers:listAccessibleCustomers"
+    )
 
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -112,7 +118,7 @@ def fetch_google_ads_account(organization):
 
     try:
         response = requests.post(
-            "https://googleads.googleapis.com/v16/customers:listAccessibleCustomers",
+            endpoint,
             headers=headers,
             json={},
             timeout=10,
@@ -126,9 +132,15 @@ def fetch_google_ads_account(organization):
     try:
         payload = response.json()
     except ValueError:
+        error_message = "Google Ads API returned a non-JSON response."
+        if response.status_code == 404:
+            error_message = (
+                "Google Ads API endpoint not found. Check GOOGLE_ADS_API_VERSION "
+                "and endpoint path."
+            )
         return {
-            "error": "Google Ads API returned a non-JSON response.",
-            "status_code": status.HTTP_502_BAD_GATEWAY,
+            "error": error_message,
+            "status_code": response.status_code or status.HTTP_502_BAD_GATEWAY,
             "raw_response": response.text[:500],
         }
 
@@ -451,7 +463,12 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
             return Response({'error': f'{platform} integration not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if isinstance(profiles, dict) and profiles.get("error"):
-            response_status = profiles.get("status_code", status.HTTP_400_BAD_REQUEST)
+            response_status_value = profiles.get("status_code", status.HTTP_400_BAD_REQUEST)
+            response_status = (
+                response_status_value
+                if isinstance(response_status_value, int)
+                else status.HTTP_400_BAD_REQUEST
+            )
             return Response(profiles, status=response_status)
 
         return Response(profiles)
