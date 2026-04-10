@@ -328,12 +328,18 @@ class GoogleCallback(APIView):
 
     def get(self, request):
         code = request.GET.get("code")
-        state = request.GET.get("state").split(":")[0]  # Extract original state without org_id
-        org_id = request.GET.get("state").split(":")[1]  # Extract org_id from state
+        state = request.GET.get("state")
         if not code or not state:
             return Response("Missing parameters", status=400)
 
-        user_id = validate_oauth_state(state)
+        state_parts = state.split(":")
+        if len(state_parts) != 2:
+            return Response("Invalid state format", status=400)
+
+        state_token = state_parts[0]
+        org_id = state_parts[1]
+
+        user_id = validate_oauth_state(state_token)
         if not user_id:
             return Response("Invalid or expired state", status=400)
 
