@@ -78,6 +78,8 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    profiles:
+      - prod
     ports:
       - "80:80"
       - "443:443"
@@ -98,6 +100,8 @@ services:
   certbot:
     image: certbot/certbot:latest
     restart: unless-stopped
+    profiles:
+      - prod
     env_file:
       - .env
     entrypoint: ["/bin/sh", "/certbot-loop.sh"]

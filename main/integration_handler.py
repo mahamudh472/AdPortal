@@ -98,35 +98,65 @@ def fetch_google_ads_account(organization):
 
     access_token = ad_profile.access_token
     developer_token = getattr(settings, "GOOGLE_ADS_DEVELOPER_TOKEN", None)
-    api_version = getattr(settings, "GOOGLE_ADS_API_VERSION", "v18")
+    configured_api_version = str(
+        getattr(settings, "GOOGLE_ADS_API_VERSION", "v18")
+    ).strip().strip('"').strip("'")
     if not developer_token:
         return {
             "error": "Google Ads developer token is not configured.",
             "status_code": status.HTTP_400_BAD_REQUEST,
         }
 
-    endpoint = (
-        f"https://googleads.googleapis.com/{api_version}/"
-        "customers:listAccessibleCustomers"
-    )
+    normalized_configured_version = configured_api_version.lower().lstrip("v")
+    configured_version = f"v{normalized_configured_version}" if normalized_configured_version else "v18"
+    candidate_versions = [configured_version, "v20", "v19", "v18"]
+
+    # Preserve order while removing duplicates.
+    dedup_versions = []
+    seen_versions = set()
+    for version in candidate_versions:
+        if version not in seen_versions:
+            dedup_versions.append(version)
+            seen_versions.add(version)
 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "developer-token": developer_token,
-        "Content-Type": "application/json",
     }
 
-    try:
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            json={},
-            timeout=10,
+    response = None
+    endpoint = None
+    for version in dedup_versions:
+        endpoint = (
+            f"https://googleads.googleapis.com/{version}/"
+            "customers:listAccessibleCustomers"
         )
-    except requests.RequestException:
+        try:
+            response = requests.get(
+                endpoint,
+                headers=headers,
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Network errors on one version should not block trying the next version.
+            response = None
+            continue
+
+        # Try next version when endpoint is not found.
+        if response.status_code != 404:
+            break
+
+    if response is None:
         return {
             "error": "Unable to reach Google Ads API.",
             "status_code": status.HTTP_502_BAD_GATEWAY,
+        }
+
+    if response.status_code == 404:
+        return {
+            "error": "Google Ads API endpoint not found across candidate versions.",
+            "status_code": status.HTTP_502_BAD_GATEWAY,
+            "endpoint": endpoint,
         }
 
     try:
@@ -141,6 +171,7 @@ def fetch_google_ads_account(organization):
         return {
             "error": error_message,
             "status_code": response.status_code or status.HTTP_502_BAD_GATEWAY,
+            "endpoint": endpoint,
             "raw_response": response.text[:500],
         }
 
@@ -148,6 +179,7 @@ def fetch_google_ads_account(organization):
         return {
             "error": "Google Ads API request failed.",
             "status_code": response.status_code,
+            "endpoint": endpoint,
             "details": payload,
         }
 
