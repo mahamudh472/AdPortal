@@ -999,8 +999,6 @@ class SyncAdsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             return Response({'error': 'No platform integrations found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
         
         for integration in integrations:
-            if integration.platform.upper() == 'GOOGLE':
-                continue
             sync_ads_task.delay(integration.id)
         return Response({'message': 'Ad sync initiated successfully'}, status=status.HTTP_200_OK)
 
