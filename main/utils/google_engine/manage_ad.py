@@ -43,7 +43,12 @@ from main.models import (
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_ADS_API_VERSION = "v18"
+GOOGLE_ADS_API_VERSION = (
+    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v18"))
+    .strip().strip('"').strip("'")
+)
+if not GOOGLE_ADS_API_VERSION.startswith("v"):
+    GOOGLE_ADS_API_VERSION = f"v{GOOGLE_ADS_API_VERSION}"
 GOOGLE_ADS_BASE_URL = f"https://googleads.googleapis.com/{GOOGLE_ADS_API_VERSION}"
 
 
@@ -107,16 +112,6 @@ def _get_valid_token(integration: AdIntegration) -> str:
     ):
         return _refresh_access_token(integration)
     return integration.access_token
-
-
-def _google_post(url: str, access_token: str, payload: dict) -> dict:
-    """POST to the Google Ads REST API, raise on non-2xx or API error."""
-    resp = requests.post(url, headers=_headers(access_token), json=payload, timeout=30)
-    if not resp.ok:
-        raise RuntimeError(
-            f"Google Ads API POST {url} failed [{resp.status_code}]: {resp.text}"
-        )
-    return resp.json()
 
 
 def _google_get(url: str, access_token: str, params: dict | None = None) -> dict:

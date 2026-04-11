@@ -36,7 +36,12 @@ from finance.utils import increment_campaign_usage
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_ADS_API_VERSION = "v18"
+GOOGLE_ADS_API_VERSION = (
+    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v18"))
+    .strip().strip('"').strip("'")
+)
+if not GOOGLE_ADS_API_VERSION.startswith("v"):
+    GOOGLE_ADS_API_VERSION = f"v{GOOGLE_ADS_API_VERSION}"
 GOOGLE_ADS_BASE_URL = f"https://googleads.googleapis.com/{GOOGLE_ADS_API_VERSION}"
 
 
