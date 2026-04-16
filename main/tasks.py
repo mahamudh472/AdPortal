@@ -81,7 +81,22 @@ def sync_ads_task(self, platform_integration_id):
     logger.info("Syncing platform=%s, account=%s", platform_integration.platform, platform_integration.ad_account_id)
     try:
         if platform_integration.platform.upper() == 'META':
-            sync_meta_integration(platform_integration)
+            from main.utils.meta_engine.sync_ad import MetaSyncConfigError
+
+            try:
+                sync_meta_integration(platform_integration)
+            except MetaSyncConfigError as exc:
+                logger.error(
+                    "Meta sync skipped due to configuration error for integration %s: %s",
+                    platform_integration_id,
+                    exc,
+                )
+                from accounts.notifications import notify_admins
+                notify_admins(
+                    f"Meta sync skipped for integration {platform_integration_id}: {exc}",
+                    setting_key='system_errors',
+                )
+                return
             logger.info("Meta sync completed for integration %s", platform_integration_id)
         elif platform_integration.platform.upper() == 'TIKTOK':
             sync_tiktok_integration(platform_integration)

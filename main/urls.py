@@ -35,4 +35,5 @@ urlpatterns = [
     path('meta/create-ad/', views.MetaCreateAdTestAPIView.as_view()),
     path('meta/update-campaign/', views.MetaUpdateCampaignTestAPIView.as_view()),
     path('meta/delete-ad/', views.MetaDeleteAdTestAPIView.as_view()),
+    path('test/create-ad-on-platform/', views.PlatformCreateAdTestAPIView.as_view()),
 ]

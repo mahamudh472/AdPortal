@@ -23,6 +23,10 @@ from finance.utils import increment_campaign_usage
 logger = logging.getLogger(__name__)
 
 
+class MetaSyncConfigError(ValueError):
+    """Raised when required Meta integration configuration is missing/invalid."""
+
+
 # ============================================================
 # SDK INIT
 # ============================================================
@@ -52,8 +56,20 @@ def map_meta_objective(obj):
 # 1: FETCH CAMPAIGNS (READ ONLY)
 
 def fetch_meta_campaigns(integration):
+    if not integration.access_token:
+        raise MetaSyncConfigError(
+            f"META integration {integration.id} has no access_token"
+        )
 
-    account = AdAccount(integration.ad_account_id)
+    raw_account_id = (integration.ad_account_id or "").strip()
+    if not raw_account_id:
+        raise MetaSyncConfigError(
+            f"META integration {integration.id} has no ad_account_id"
+        )
+
+    account_id = raw_account_id if raw_account_id.startswith("act_") else f"act_{raw_account_id}"
+
+    account = AdAccount(account_id)
 
     campaigns = account.get_campaigns(fields=[
         "id",

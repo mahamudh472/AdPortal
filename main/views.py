@@ -1174,3 +1174,167 @@ class MetaDeleteAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+
+class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """
+    POST {org_id, platform, campaign_id, ?ad_asset_id}
+
+    Test-only endpoint to trigger real provider-side ad creation for one
+    UnifiedCampaign on one platform.
+    """
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+
+        platform = str(request.data.get('platform', '')).upper()
+        campaign_id = request.data.get('campaign_id')
+        ad_asset_id = request.data.get('ad_asset_id')
+
+        if platform not in ('META', 'TIKTOK', 'GOOGLE'):
+            return Response(
+                {'error': 'platform must be one of: META, TIKTOK, GOOGLE.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not campaign_id:
+            return Response(
+                {'error': 'campaign_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        campaign = UnifiedCampaign.objects.filter(
+            id=campaign_id,
+            organization=organization,
+        ).first()
+        if not campaign:
+            return Response(
+                {'error': 'Campaign not found for this organization.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        integration = (
+            organization.integrations
+            .filter(platform=platform, is_active=True)
+            .order_by('-created_at', '-id')
+            .first()
+        )
+        if not integration:
+            return Response(
+                {'error': f'No active {platform} integration found for this organization.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ad_asset = None
+        if ad_asset_id:
+            ad_asset = AdAsset.objects.filter(id=ad_asset_id, organization=organization).first()
+            if not ad_asset:
+                return Response(
+                    {'error': 'ad_asset_id is invalid for this organization.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            if platform == 'META':
+                from main.utils.meta_engine.manage_ad import create_ad_on_meta
+
+                local_ad = create_ad_on_meta(
+                    unified_campaign_id=int(campaign.id),
+                    ad_asset=ad_asset,
+                )
+                return Response({
+                    'message': 'Meta ad creation triggered successfully.',
+                    'platform': 'META',
+                    'campaign_id': campaign.id,
+                    'ad_id': local_ad.id,
+                    'platform_ad_id': local_ad.platform_ad_id,
+                }, status=status.HTTP_201_CREATED)
+
+            if platform == 'GOOGLE':
+                from main.utils.google_engine.manage_ad import create_ad_on_google
+
+                local_ad = create_ad_on_google(
+                    unified_campaign_id=int(campaign.id),
+                    ad_asset=ad_asset,
+                )
+                return Response({
+                    'message': 'Google ad creation triggered successfully.',
+                    'platform': 'GOOGLE',
+                    'campaign_id': campaign.id,
+                    'ad_id': local_ad.id,
+                    'platform_ad_id': local_ad.platform_ad_id,
+                }, status=status.HTTP_201_CREATED)
+
+            # TikTok path
+            from main.models import PlatformCampaign
+            from main.utils.tiktok_handler import create_full_ad_for_tiktok
+
+            platform_campaign = PlatformCampaign.objects.filter(
+                unified_campaign=campaign,
+                integration=integration,
+            ).first()
+
+            if not platform_campaign:
+                return Response(
+                    {
+                        'error': (
+                            'No local TIKTOK PlatformCampaign found for this unified campaign. '
+                            'Publish/create the campaign first so ad group scaffolding exists.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not platform_campaign.ad_groups.exists():
+                return Response(
+                    {
+                        'error': (
+                            'No local TIKTOK AdGroup found for this campaign. '
+                            'Create local ad group scaffolding first.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            result = create_full_ad_for_tiktok(
+                campaign,
+                integration,
+                force_recreate_campaign=True,
+                ad_asset=ad_asset,
+            )
+            platform_campaign.refresh_from_db()
+            first_adgroup = platform_campaign.ad_groups.first()
+
+            return Response({
+                'message': 'TikTok campaign/adgroup creation triggered successfully.',
+                'platform': 'TIKTOK',
+                'campaign_id': campaign.id,
+                'platform_campaign_id': (result or {}).get('campaign_id') or platform_campaign.platform_campaign_id,
+                'platform_adgroup_id': (result or {}).get('adgroup_id') or (first_adgroup.platform_adgroup_id if first_adgroup else None),
+                'ad_id': (result or {}).get('ad_id'),
+                'platform_ad_id': (result or {}).get('platform_ad_id'),
+            }, status=status.HTTP_201_CREATED)
+
+        except ValueError as exc:
+            return Response(
+                {
+                    'error': str(exc),
+                    'platform': platform,
+                    'campaign_id': campaign.id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception as exc:
+            return Response(
+                {
+                    'error': str(exc),
+                    'platform': platform,
+                    'campaign_id': campaign.id,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+

@@ -90,6 +90,125 @@ def _optimization_goal(unified_objective: str) -> str:
     return OPTIMIZATION_GOAL_MAP.get(unified_objective, "LINK_CLICKS")
 
 
+def _optimization_goal_candidates(unified_objective: str) -> list[str]:
+    """Return ordered optimization-goal candidates for resilient adset creation."""
+    primary = _optimization_goal(unified_objective)
+    fallback_map = {
+        "CONVERSIONS": ["OFFSITE_CONVERSIONS", "LINK_CLICKS", "REACH"],
+        "TRAFFIC": ["LINK_CLICKS", "LANDING_PAGE_VIEWS", "REACH"],
+        "LEADS": ["LEAD_GENERATION", "LINK_CLICKS", "REACH"],
+        "LEAD_GENERATION": ["LEAD_GENERATION", "LINK_CLICKS", "REACH"],
+        "AWARENESS": ["REACH", "IMPRESSIONS", "LINK_CLICKS"],
+        "ENGAGEMENT": ["LINK_CLICKS", "REACH", "IMPRESSIONS"],
+        "APP_PROMOTION": ["APP_INSTALLS", "LINK_CLICKS", "REACH"],
+    }
+    goals = [primary] + fallback_map.get(unified_objective, ["LINK_CLICKS", "REACH"])
+
+    # De-duplicate while preserving order.
+    seen = set()
+    ordered: list[str] = []
+    for goal in goals:
+        if goal and goal not in seen:
+            seen.add(goal)
+            ordered.append(goal)
+    return ordered
+
+
+def _create_adset_with_goal_fallback(
+    account: AdAccount,
+    adset_params_base: dict,
+    unified_objective: str,
+):
+    """Create Meta ad set by trying compatible optimization goals in order."""
+    last_exc = None
+    tried: list[str] = []
+    for goal in _optimization_goal_candidates(unified_objective):
+        params = {**adset_params_base, "optimization_goal": goal}
+        tried.append(goal)
+        try:
+            meta_adset = account.create_ad_set(params=params)
+            return meta_adset, goal
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Meta adset create failed for optimization_goal=%s: %s", goal, exc)
+
+    raise ValueError(
+        f"Failed to create ad set for objective={unified_objective}. Tried optimization goals: {tried}. Last error: {last_exc}"
+    )
+
+
+def _is_performance_goal_unavailable_error(exc: Exception) -> bool:
+    text = str(exc)
+    lowered = text.lower()
+    return (
+        "performance goal isn't available" in lowered
+        or "error_subcode\": 2490408" in text
+        or 'blame_field_specs\\\":[[\\\"optimization_goal\\\"]]' in text
+    )
+
+
+def _create_meta_campaign_with_objective(
+    account: AdAccount,
+    campaign: UnifiedCampaign,
+    meta_objective: str,
+):
+    return account.create_campaign(params={
+        "name": campaign.name,
+        "objective": meta_objective,
+        "status": "PAUSED",
+        "special_ad_categories": [],
+        "is_adset_budget_sharing_enabled": False,
+    })
+
+
+def _create_adset_resilient(
+    account: AdAccount,
+    adset_params_base: dict,
+    unified_objective: str,
+    campaign: UnifiedCampaign,
+    platform_campaign: PlatformCampaign | None = None,
+):
+    """Create adset with optimization fallback and ENGAGEMENT->TRAFFIC campaign fallback."""
+    try:
+        meta_adset, used_goal = _create_adset_with_goal_fallback(
+            account,
+            adset_params_base,
+            unified_objective,
+        )
+        return meta_adset, used_goal
+    except Exception as exc:
+        if unified_objective == "ENGAGEMENT" and _is_performance_goal_unavailable_error(exc):
+            logger.warning(
+                "Meta objective fallback triggered for campaign %s: %s",
+                campaign.id,
+                exc,
+            )
+
+            fallback_campaign = _create_meta_campaign_with_objective(
+                account,
+                campaign,
+                "OUTCOME_TRAFFIC",
+            )
+            fallback_campaign_id = fallback_campaign["id"]
+
+            if platform_campaign:
+                platform_campaign.platform_campaign_id = fallback_campaign_id
+                platform_campaign.status = "PAUSED"
+                platform_campaign.last_synced_at = timezone.now()
+                platform_campaign.save(update_fields=["platform_campaign_id", "status", "last_synced_at", "updated_at"])
+
+            fallback_params = {**adset_params_base, "campaign_id": fallback_campaign_id}
+            return _create_adset_with_goal_fallback(account, fallback_params, "TRAFFIC")
+
+        raise
+
+
+def _build_promoted_object(page_id: str) -> dict:
+    """Return the minimal promoted_object required by many Meta ad set types."""
+    # A valid Page is the safest default promoted object for website/page ads.
+    return {"page_id": str(page_id)}
+
+
 # ────────────────────────────────────────────────────────────
 # CTA MAPPING  (internal / legacy → valid Meta CTA)
 # ────────────────────────────────────────────────────────────
@@ -347,11 +466,11 @@ def create_ad_on_meta(
             "name": f"{campaign.name} - Ad Set",
             "campaign_id": meta_campaign_id,
             "billing_event": "IMPRESSIONS",
-            "optimization_goal": _optimization_goal(campaign.objective),
             "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
             "start_time": start_time,
             "status": "PAUSED",
             "targeting": _build_targeting(targeting_config),
+            "promoted_object": _build_promoted_object(page_id),
         }
 
         # Budget: prefer campaign budget record, fall back to draft
@@ -375,9 +494,15 @@ def create_ad_on_meta(
                 adset_params["daily_budget"] = int(meta_budget["budget"])
 
         try:
-            meta_adset = account.create_ad_set(params=adset_params)
+            meta_adset, used_goal = _create_adset_resilient(
+                account,
+                adset_params,
+                campaign.objective,
+                campaign,
+                platform_campaign,
+            )
             meta_adset_id = meta_adset["id"]
-            logger.info("Meta Ad Set created: %s", meta_adset_id)
+            logger.info("Meta Ad Set created: %s (optimization_goal=%s)", meta_adset_id, used_goal)
         except Exception as exc:
             raise MetaAdCreationError(
                 "ADSET", str(exc), platform_campaign=platform_campaign,
@@ -401,6 +526,81 @@ def create_ad_on_meta(
     else:
         meta_adset_id = ad_group.platform_adgroup_id
         logger.info("Reusing existing Meta Ad Set: %s", meta_adset_id)
+
+        # promoted_object is immutable for many Meta ad sets.
+        # If an older ad set has no promoted_object, recreate it instead of updating.
+        needs_recreate = False
+        try:
+            existing_adset = MetaAdSet(meta_adset_id).api_get(fields=["promoted_object"])
+            promoted_object = None
+            if existing_adset:
+                if isinstance(existing_adset, dict):
+                    promoted_object = existing_adset.get("promoted_object")
+                else:
+                    # If SDK type is not dict-like, treat as unknown and recreate.
+                    promoted_object = None
+            if not promoted_object or not promoted_object.get("page_id"):
+                needs_recreate = True
+        except Exception as exc:
+            logger.warning(
+                "Could not read promoted_object for ad set %s (%s); recreating ad set.",
+                meta_adset_id,
+                exc,
+            )
+            needs_recreate = True
+
+        if needs_recreate:
+            targeting_config = ad_group.targeting_config or {}
+            start_time = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
+            replacement_adset_params = {
+                "name": ad_group.name or f"{campaign.name} - Ad Set",
+                "campaign_id": meta_campaign_id,
+                "billing_event": "IMPRESSIONS",
+                "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+                "start_time": start_time,
+                "status": "PAUSED",
+                "targeting": _build_targeting(targeting_config),
+                "promoted_object": _build_promoted_object(page_id),
+            }
+
+            if budget:
+                if budget.budget_type == "DAILY":
+                    replacement_adset_params["daily_budget"] = budget.daily_budget_minor
+                else:
+                    replacement_adset_params["lifetime_budget"] = budget.daily_budget_minor
+                    if budget.end_date and budget.end_date > datetime.now().date():
+                        replacement_adset_params["end_time"] = budget.end_date.strftime("%Y-%m-%dT23:59:59")
+                    else:
+                        fallback_end = datetime.now() + timedelta(days=30)
+                        replacement_adset_params["end_time"] = fallback_end.strftime("%Y-%m-%dT23:59:59")
+
+            old_meta_adset_id = meta_adset_id
+            try:
+                replacement_adset, used_goal = _create_adset_resilient(
+                    account,
+                    replacement_adset_params,
+                    campaign.objective,
+                    campaign,
+                    platform_campaign,
+                )
+                meta_adset_id = replacement_adset["id"]
+            except Exception as exc:
+                raise MetaAdCreationError(
+                    "ADSET", f"Failed to recreate ad set with promoted_object: {exc}",
+                    platform_campaign=platform_campaign,
+                    ad_group=ad_group,
+                ) from exc
+
+            ad_group.platform_adgroup_id = meta_adset_id
+            ad_group.status = "PAUSED"
+            ad_group.last_synced_at = timezone.now()
+            ad_group.save(update_fields=["platform_adgroup_id", "status", "last_synced_at", "updated_at"])
+            logger.info(
+                "Recreated Meta Ad Set with promoted_object. Old=%s New=%s goal=%s",
+                old_meta_adset_id,
+                meta_adset_id,
+                used_goal,
+            )
 
     # ── Step 3: Upload asset (if any) ───────────────────────
     image_hash = None

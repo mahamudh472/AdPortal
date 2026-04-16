@@ -1,15 +1,20 @@
 import requests, datetime, json, os
+import hashlib
+from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timezone as dt_timezone
 from dotenv import load_dotenv
 load_dotenv()
 
-from main.models import UnifiedCampaign, PlatformCampaign
+from main.models import Ad, AdAsset, PlatformAsset, PlatformCampaign
 
-# --- CONFIGURATION (SANDBOX) ---
-# ⚠️ TikTok Sandbox URL is different from Production!
-BASE_URL = "https://sandbox-ads.tiktok.com/open_api/v1.3"
-PRODUCTION_URL = "https://ads.tiktok.com/open_api/v1.3"
+# Default to TikTok Business API (production OAuth flow).
+BASE_URL = getattr(
+    settings,
+    "TIKTOK_API_BASE_URL",
+    "https://business-api.tiktok.com/open_api/v1.3",
+)
+PRODUCTION_URL = "https://business-api.tiktok.com/open_api/v1.3"
 
 # PASTE YOUR CREDENTIALS HERE
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
@@ -20,6 +25,206 @@ HEADERS = {
     "Access-Token": ACCESS_TOKEN,
     "Content-Type": "application/json"
 }
+
+
+def _tiktok_post(endpoint: str, access_token: str, payload: dict) -> dict:
+    url = f"{BASE_URL}/{endpoint}"
+    resp = requests.post(
+        url,
+        headers={"Access-Token": access_token, "Content-Type": "application/json"},
+        json=payload,
+        timeout=30,
+    )
+    data = resp.json()
+    if resp.status_code >= 400 or data.get("code") != 0:
+        raise ValueError(
+            f"TikTok {endpoint} failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
+        )
+    return data.get("data", {})
+
+
+def _tiktok_get(endpoint: str, access_token: str, params: dict) -> dict:
+    url = f"{BASE_URL}/{endpoint}"
+    resp = requests.get(
+        url,
+        headers={"Access-Token": access_token},
+        params=params,
+        timeout=30,
+    )
+    data = resp.json()
+    if resp.status_code >= 400 or data.get("code") != 0:
+        raise ValueError(
+            f"TikTok {endpoint} failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
+        )
+    return data.get("data", {})
+
+
+def _resolve_tiktok_identity_id(integration) -> str:
+    """Fetch one usable identity_id for the advertiser account."""
+    data = _tiktok_get(
+        "identity/get/",
+        integration.access_token,
+        {"advertiser_id": integration.ad_account_id},
+    )
+
+    identities = data.get("list") or []
+    if not identities:
+        raise ValueError(
+            "TikTok identity is missing for this ad account. Please create/connect an identity in TikTok Ads Manager first."
+        )
+
+    first = identities[0] or {}
+    identity_id = first.get("identity_id")
+    if not identity_id:
+        raise ValueError(
+            "TikTok returned identities but none has identity_id. Please verify identity setup in TikTok Ads Manager."
+        )
+    return str(identity_id)
+
+
+def _normalize_tiktok_cta(raw_cta: str | None) -> str:
+    value = (raw_cta or "LEARN_MORE").upper().replace(" ", "_").strip()
+    mapping = {
+        "READ_MORE": "LEARN_MORE",
+        "GET_STARTED": "LEARN_MORE",
+        "SIGNUP": "SIGN_UP",
+        "REGISTER": "SIGN_UP",
+    }
+    return mapping.get(value, value)
+
+
+def _ensure_local_ad(platform_campaign, adgroup) -> Ad:
+    local_ad = adgroup.ads.order_by("-id").first()
+    if local_ad:
+        return local_ad
+
+    return Ad.objects.create(
+        ad_group=adgroup,
+        name=f"{platform_campaign.unified_campaign.name} - TikTok Ad",
+        headline=platform_campaign.unified_campaign.name,
+        primary_text="Auto-created TikTok ad",
+        description="",
+        destination_url="https://example.com",
+        call_to_action="LEARN_MORE",
+    )
+
+
+def _attach_campaign_draft_asset(local_ad: Ad, campaign) -> None:
+    """Attach campaign draft asset to local ad when ad has no assets yet."""
+    if local_ad.assets.exists():
+        return
+
+    draft_asset_id = (campaign.draft_data or {}).get("ad_asset_id")
+    if not draft_asset_id:
+        return
+
+    asset = AdAsset.objects.filter(
+        id=draft_asset_id,
+        organization=campaign.organization,
+    ).first()
+    if asset:
+        local_ad.assets.add(asset)
+
+
+def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[None, None]:
+    """Upload first local asset and return (ad_format, asset_id)."""
+    asset = local_ad.assets.order_by("-id").first()
+    if not asset:
+        return None, None
+
+    existing = PlatformAsset.objects.filter(asset=asset, integration=integration).first()
+    if existing:
+        if asset.file_type == "VIDEO":
+            return "SINGLE_VIDEO", existing.platform_asset_id
+        return "SINGLE_IMAGE", existing.platform_asset_id
+
+    upload_headers = {"Access-Token": integration.access_token}
+    if asset.file_type == "VIDEO":
+        endpoint = f"{BASE_URL}/file/video/ad/upload/"
+        field_name = "video_file"
+        ad_format = "SINGLE_VIDEO"
+    else:
+        endpoint = f"{BASE_URL}/file/image/ad/upload/"
+        field_name = "image_file"
+        ad_format = "SINGLE_IMAGE"
+
+    signature = None
+    if asset.file_type == "IMAGE":
+        hasher = hashlib.md5()
+        with open(asset.file.path, "rb") as sig_file:
+            for chunk in iter(lambda: sig_file.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        signature = hasher.hexdigest()
+
+    # Some TikTok accounts are strict about multipart field names.
+    upload_attempts = [field_name]
+    if asset.file_type == "IMAGE":
+        upload_attempts.append("file")
+
+    last_data = None
+    for upload_field in upload_attempts:
+        with open(asset.file.path, "rb") as f:
+            files = {upload_field: (os.path.basename(asset.file.path), f)}
+            data_payload = {
+                "advertiser_id": integration.ad_account_id,
+                "upload_type": "UPLOAD_BY_FILE",
+            }
+            if signature:
+                data_payload["image_signature"] = signature
+
+            resp = requests.post(
+                endpoint,
+                headers=upload_headers,
+                data=data_payload,
+                files=files,
+                timeout=60,
+            )
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"code": None, "message": resp.text}
+
+        last_data = data
+        if resp.status_code < 400 and data.get("code") == 0:
+            break
+    else:
+        raise ValueError(
+            f"TikTok asset upload failed [{(last_data or {}).get('code')}]: "
+            f"{(last_data or {}).get('message', 'Unknown error')}"
+        )
+
+    if asset.file_type == "VIDEO":
+        platform_asset_id = data.get("data", {}).get("video_id")
+    else:
+        platform_asset_id = data.get("data", {}).get("image_id")
+
+    if not platform_asset_id:
+        raise ValueError("TikTok asset upload succeeded but no platform asset id was returned")
+
+    PlatformAsset.objects.update_or_create(
+        asset=asset,
+        integration=integration,
+        defaults={"platform_asset_id": platform_asset_id},
+    )
+    asset.status = "UPLOADED"
+    asset.file_hash = platform_asset_id
+    asset.save(update_fields=["status", "file_hash"])
+
+    return ad_format, platform_asset_id
+
+
+def _select_platform_campaign(campaign, integration):
+    """Pick one local PlatformCampaign deterministically if duplicates exist."""
+    qs = PlatformCampaign.objects.filter(
+        unified_campaign=campaign,
+        integration=integration,
+    ).order_by('-updated_at', '-id')
+
+    selected = qs.filter(platform_campaign_id__isnull=False).first() or qs.first()
+    if not selected:
+        raise ValueError("No local PlatformCampaign found for this campaign/integration")
+    return selected
 
 def to_tiktok_datetime(dt):
     """
@@ -86,33 +291,65 @@ def get_tiktok_adgroup_config(objective):
         "pacing": "PACING_MODE_SMOOTH",
     }
 
-def create_platform_campaign_for_tiktok(campaign, integration, ADVERTISER_ID, ACCESS_TOKEN):
+
+def _map_tiktok_campaign_objective(unified_objective: str) -> str:
+    """
+    Map internal objective to TikTok-compatible campaign objective for test flow.
+
+    For accounts without conversion setup/pixel, keeping objective on TRAFFIC avoids
+    strict optimization constraints that fail adgroup creation.
+    """
+    if unified_objective == "TRAFFIC":
+        return "TRAFFIC"
+    if unified_objective == "AWARENESS":
+        return "REACH"
+    # CONVERSIONS / LEAD_GENERATION / APP_PROMOTION / ENGAGEMENT
+    # fallback to TRAFFIC in test mode
+    return "TRAFFIC"
+
+def create_platform_campaign_for_tiktok(
+    campaign,
+    integration,
+    ADVERTISER_ID,
+    ACCESS_TOKEN,
+    force_recreate=False,
+):
     print(type(campaign))
-    platform_campaign = PlatformCampaign.objects.get(unified_campaign=campaign, integration=integration)
+    platform_campaign = _select_platform_campaign(campaign, integration)
     campaign_budget = campaign.campaignbudget_set.filter(platform='TIKTOK').first()
-    if platform_campaign.platform_campaign_id:
+    if not campaign_budget:
+        raise ValueError("TikTok budget is missing for this campaign")
+
+    if platform_campaign.platform_campaign_id and not force_recreate:
         print("TikTok Campaign already exists. Skipping creation.")
         return platform_campaign.platform_campaign_id
     
     url = f"{BASE_URL}/campaign/create/"
-    # ADVERTISER_ID = integration.ad_account_id
-    # ACCESS_TOKEN = integration.access_token
-    HEADERS["Access-Token"] = ACCESS_TOKEN
+    if not ADVERTISER_ID:
+        raise ValueError("TikTok advertiser_id (ad_account_id) is missing in integration")
+    if not ACCESS_TOKEN:
+        raise ValueError("TikTok access_token is missing in integration")
+
+    headers = {
+        "Access-Token": ACCESS_TOKEN,
+        "Content-Type": "application/json",
+    }
     
     payload = {
         "advertiser_id": ADVERTISER_ID,
-        "campaign_name": campaign.name,
-        "objective_type": campaign.objective, # Options: TRAFFIC, CONVERSIONS, REACH
+        "campaign_name": campaign.name if not force_recreate else f"{campaign.name} [test]",
+        "objective_type": _map_tiktok_campaign_objective(campaign.objective),
         "budget_mode": "BUDGET_MODE_DAY" if campaign_budget.budget_type == 'DAILY' else "BUDGET_MODE_TOTAL",
         "budget": campaign_budget.daily_budget_minor, # Minimum is usually 50 in Sandbox
     }
     
-    res = requests.post(url, headers=HEADERS, json=payload)
+    res = requests.post(url, headers=headers, json=payload, timeout=30)
     data = res.json()
     
-    if data['code'] != 0:
-        print(f"❌ Campaign Failed: {data['message']}")
-        return
+    if res.status_code >= 400 or data.get('code') != 0:
+        raise ValueError(
+            f"TikTok campaign create failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
+        )
         
     campaign_id = data['data']['campaign_id']
     platform_campaign.platform_campaign_id = campaign_id
@@ -122,14 +359,42 @@ def create_platform_campaign_for_tiktok(campaign, integration, ADVERTISER_ID, AC
     return campaign_id
     
 
-def create_ad_group_for_tiktok(campaign_id):
+def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADVERTISER_ID=None, ACCESS_TOKEN=None):
     url = f"{BASE_URL}/adgroup/create/"
     print(campaign_id)
-    platform_campaign = PlatformCampaign.objects.get(platform_campaign_id=campaign_id)
+    if campaign and integration:
+        platform_campaign = PlatformCampaign.objects.filter(
+            unified_campaign=campaign,
+            integration=integration,
+            platform_campaign_id=campaign_id,
+        ).order_by('-updated_at', '-id').first()
+    else:
+        platform_campaign = PlatformCampaign.objects.filter(
+            platform_campaign_id=campaign_id
+        ).order_by('-updated_at', '-id').first()
+
+    if not platform_campaign:
+        raise ValueError(f"No PlatformCampaign found for campaign_id={campaign_id}")
+
     adgroup = platform_campaign.ad_groups.first()
+    if not adgroup:
+        raise ValueError("No local AdGroup found for selected PlatformCampaign")
+
+    advertiser_id = ADVERTISER_ID or (integration.ad_account_id if integration else None)
+    access_token = ACCESS_TOKEN or (integration.access_token if integration else None)
+    if not advertiser_id:
+        raise ValueError("TikTok advertiser_id (ad_account_id) is missing in integration")
+    if not access_token:
+        raise ValueError("TikTok access_token is missing in integration")
+
+    headers = {
+        "Access-Token": access_token,
+        "Content-Type": "application/json",
+    }
+
     # Ad Group requires stricter validation than Meta
     payload = {
-        "advertiser_id": ADVERTISER_ID,
+        "advertiser_id": advertiser_id,
         "campaign_id": campaign_id,
         "adgroup_name": adgroup.name,
         "placement_type": "PLACEMENT_TYPE_NORMAL",
@@ -141,33 +406,159 @@ def create_ad_group_for_tiktok(campaign_id):
         "schedule_start_time": to_tiktok_datetime(adgroup.start_time),
         "schedule_end_time": to_tiktok_datetime(adgroup.end_time),
     }
-    config = get_tiktok_adgroup_config(platform_campaign.unified_campaign.objective)
-    payload.update(config)
-    
-    res = requests.post(url, headers=HEADERS, json=payload)
-    data = res.json()
-    
-    if data['code'] != 0:
-        print(f"❌ Ad Group Failed: {data['message']}")
-        return
+    if not platform_campaign.unified_campaign:
+        raise ValueError("Selected PlatformCampaign has no linked UnifiedCampaign")
 
-    adgroup_id = data['data']['adgroup_id']
-    adgroup.platform_adgroup_id = adgroup_id
-    adgroup.save()
-    print(f"✅ Ad Group Created: {adgroup_id}")
-    return adgroup_id
+    primary_config = get_tiktok_adgroup_config(platform_campaign.unified_campaign.objective)
+    fallback_configs = [
+        {},
+        {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "CLICK",
+            "billing_event": "CPC",
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        },
+        {
+            "promotion_type": "WEBSITE",
+            "optimization_goal": "REACH",
+            "billing_event": "CPM",
+            "bid_type": "BID_TYPE_NO_BID",
+            "pacing": "PACING_MODE_SMOOTH",
+        },
+    ]
+
+    # Try minimal payload first, then primary config, then extra fallbacks.
+    attempts = [
+        {},
+        primary_config,
+    ] + [c for c in fallback_configs if c != primary_config and c != {}]
+    last_error = None
+    attempt_errors = []
+
+    for cfg in attempts:
+        req_payload = {**payload, **cfg}
+        res = requests.post(url, headers=headers, json=req_payload, timeout=30)
+        data = res.json()
+
+        if res.status_code < 400 and data.get('code') == 0:
+            adgroup_id = data['data']['adgroup_id']
+            adgroup.platform_adgroup_id = adgroup_id
+            adgroup.save()
+            print(f"✅ Ad Group Created: {adgroup_id}")
+            return adgroup_id
+
+        last_error = data
+        attempt_errors.append({
+            "optimization_goal": cfg.get("optimization_goal"),
+            "billing_event": cfg.get("billing_event"),
+            "promotion_type": cfg.get("promotion_type"),
+            "code": data.get("code"),
+            "message": data.get("message"),
+        })
+        if data.get('code') != 40002:
+            break
+
+    raise ValueError(
+        f"TikTok adgroup create failed [{(last_error or {}).get('code')}]: "
+        f"{(last_error or {}).get('message', 'Unknown error')}. "
+        f"Attempts={attempt_errors}"
+    )
 
 def upload_tiktok_video(campaign, integration):
-    pass
+    platform_campaign = _select_platform_campaign(campaign, integration)
+    adgroup = platform_campaign.ad_groups.order_by("-id").first()
+    if not adgroup:
+        raise ValueError("No local AdGroup found for TikTok asset upload")
+    local_ad = _ensure_local_ad(platform_campaign, adgroup)
+    return _upload_tiktok_asset(local_ad, integration)
 
-def create_tiktok_ad_creative(campaign, integration):
-    pass
+def create_tiktok_ad_creative(campaign, integration, adgroup_id, ad_asset: AdAsset | None = None):
+    platform_campaign = _select_platform_campaign(campaign, integration)
+    adgroup = platform_campaign.ad_groups.filter(
+        platform_adgroup_id=adgroup_id
+    ).order_by("-id").first() or platform_campaign.ad_groups.order_by("-id").first()
+    if not adgroup:
+        raise ValueError("No local AdGroup found for TikTok ad creation")
 
-def create_full_ad_for_tiktok(campaign, integration):
+    local_ad = _ensure_local_ad(platform_campaign, adgroup)
+    if ad_asset:
+        local_ad.assets.add(ad_asset)
+    _attach_campaign_draft_asset(local_ad, campaign)
+    ad_format, platform_asset_id = _upload_tiktok_asset(local_ad, integration)
+    identity_id = _resolve_tiktok_identity_id(integration)
+
+    safe_ad_name = (local_ad.name or "").strip() or f"{campaign.name} - TikTok Ad"
+
+    creative = {
+        "ad_name": safe_ad_name,
+        "ad_text": local_ad.primary_text or local_ad.headline or safe_ad_name,
+        "call_to_action": _normalize_tiktok_cta(local_ad.call_to_action),
+        "landing_page_url": local_ad.destination_url,
+        "display_name": integration.account_name or campaign.organization.name,
+        "identity_id": identity_id,
+    }
+    if ad_format == "SINGLE_VIDEO" and platform_asset_id:
+        creative["ad_format"] = "SINGLE_VIDEO"
+        creative["video_id"] = platform_asset_id
+    elif ad_format == "SINGLE_IMAGE" and platform_asset_id:
+        creative["ad_format"] = "SINGLE_IMAGE"
+        creative["image_ids"] = [platform_asset_id]
+    else:
+        raise ValueError(
+            "No ad asset found for TikTok ad creation. Attach an image/video to the campaign ad first."
+        )
+
+    payload = {
+        "advertiser_id": integration.ad_account_id,
+        "adgroup_id": adgroup_id,
+        "ad_name": safe_ad_name,
+        "creatives": [creative],
+    }
+    data = _tiktok_post("ad/create/", integration.access_token, payload)
+    ad_ids = data.get("ad_ids") or []
+    if not ad_ids:
+        raise ValueError("TikTok ad/create succeeded but no ad id was returned")
+
+    local_ad.platform_ad_id = str(ad_ids[0])
+    local_ad.status = "ACTIVE"
+    local_ad.save(update_fields=["platform_ad_id", "status"])
+    return local_ad
+
+def create_full_ad_for_tiktok(
+    campaign,
+    integration,
+    force_recreate_campaign=False,
+    ad_asset: AdAsset | None = None,
+):
 
     # TODO: Need to change to the actual values from campaign and integration
-    campaign_id = create_platform_campaign_for_tiktok(campaign, integration, integration.ad_account_id, integration.access_token)
-    adgroup_id = create_ad_group_for_tiktok(campaign_id)
+    campaign_id = create_platform_campaign_for_tiktok(
+        campaign,
+        integration,
+        integration.ad_account_id,
+        integration.access_token,
+        force_recreate=force_recreate_campaign,
+    )
+    if not campaign_id:
+        raise ValueError("TikTok campaign creation did not return campaign_id")
+    adgroup_id = create_ad_group_for_tiktok(
+        campaign_id,
+        campaign=campaign,
+        integration=integration,
+        ADVERTISER_ID=integration.ad_account_id,
+        ACCESS_TOKEN=integration.access_token,
+    )
+    if not adgroup_id:
+        raise ValueError("TikTok adgroup creation did not return adgroup_id")
+
+    local_ad = create_tiktok_ad_creative(campaign, integration, adgroup_id, ad_asset=ad_asset)
+    return {
+        "campaign_id": campaign_id,
+        "adgroup_id": adgroup_id,
+        "ad_id": local_ad.id,
+        "platform_ad_id": local_ad.platform_ad_id,
+    }
 
 def create_tiktok_ad_flow():
     print(f"🚀 Starting TikTok Sandbox Flow for Advertiser: {ADVERTISER_ID}")

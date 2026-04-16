@@ -210,6 +210,36 @@ Meta example:
 {"message": "Analytics sync initiated for 1 integration(s)."}
 ```
 
+## Testing Endpoints
+
+### `POST /api/v1/main/test/create-ad-on-platform/`
+- Query params: `org_id`.
+- Purpose: trigger provider-side ad creation for one existing unified campaign on one platform.
+- Request body:
+
+```json
+{"platform": "META", "campaign_id": 123, "ad_asset_id": 45}
+```
+
+- Notes:
+- `platform` must be `META`, `TIKTOK`, or `GOOGLE`.
+- `ad_asset_id` is optional (currently used by META/GOOGLE handlers).
+- For `TIKTOK`, local `PlatformCampaign` and `AdGroup` must already exist for that campaign.
+
+- Success response examples:
+
+```json
+{"message": "Meta ad creation triggered successfully.", "platform": "META", "campaign_id": 123, "ad_id": 998, "platform_ad_id": "1201234567890"}
+```
+
+```json
+{"message": "Google ad creation triggered successfully.", "platform": "GOOGLE", "campaign_id": 123, "ad_id": 1002, "platform_ad_id": "customers/1234567890/adGroupAds/111~222"}
+```
+
+```json
+{"message": "TikTok campaign/adgroup creation triggered successfully.", "platform": "TIKTOK", "campaign_id": 123, "platform_campaign_id": "1851326442807426", "platform_adgroup_id": "1851326442807427"}
+```
+
 ## Team Management
 
 ### `GET /api/v1/main/team/`

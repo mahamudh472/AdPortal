@@ -362,7 +362,7 @@ class TikTokConnect(RequiredOrganizationIDMixin, APIView):
             "redirect_uri": settings.TIKTOK_REDIRECT_URI,
             "state": state,
             "response_type": "code",
-            "scope": "advertiser.read,ads.read",
+            "scope": "advertiser.read,ads.read,ads.management",
         }
         url = "https://business-api.tiktok.com/portal/auth?" + urlencode(params)
 
