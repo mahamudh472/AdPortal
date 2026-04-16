@@ -86,7 +86,7 @@ OPTIMIZATION_GOAL_MAP = {
 
 OBJECTIVE_ADSET_RULES = {
     "CONVERSIONS": {
-        "optimization_goals": ["OFFSITE_CONVERSIONS", "LINK_CLICKS", "REACH"],
+        "optimization_goals": ["OFFSITE_CONVERSIONS"],
         "billing_events": ["IMPRESSIONS", "LINK_CLICKS"],
     },
     "TRAFFIC": {
@@ -260,7 +260,7 @@ def _create_adset_resilient(
     campaign: UnifiedCampaign,
     platform_campaign: PlatformCampaign | None = None,
 ):
-    """Create adset with optimization fallback and ENGAGEMENT->TRAFFIC campaign fallback."""
+    """Create adset with optimization fallback and campaign self-healing for 2490408."""
     try:
         meta_adset, used_goal, used_billing_event = _create_adset_with_goal_fallback(
             account,
@@ -269,28 +269,52 @@ def _create_adset_resilient(
         )
         return meta_adset, used_goal, used_billing_event
     except Exception as exc:
-        if unified_objective == "ENGAGEMENT" and _is_performance_goal_unavailable_error(exc):
+        if _is_performance_goal_unavailable_error(exc):
             logger.warning(
-                "Meta objective fallback triggered for campaign %s: %s",
+                "Meta objective mismatch/goal unavailability for campaign %s: %s",
                 campaign.id,
                 exc,
             )
 
-            fallback_campaign = _create_meta_campaign_with_objective(
-                account,
-                campaign,
-                "OUTCOME_TRAFFIC",
-            )
-            fallback_campaign_id = fallback_campaign["id"]
+            # First attempt: recreate campaign with the expected objective and retry same objective.
+            expected_meta_objective = _meta_objective(unified_objective)
+            refreshed_campaign = _create_meta_campaign_with_objective(account, campaign, expected_meta_objective)
+            refreshed_campaign_id = refreshed_campaign["id"]
 
             if platform_campaign:
-                platform_campaign.platform_campaign_id = fallback_campaign_id
+                platform_campaign.platform_campaign_id = refreshed_campaign_id
                 platform_campaign.status = "PAUSED"
                 platform_campaign.last_synced_at = timezone.now()
                 platform_campaign.save(update_fields=["platform_campaign_id", "status", "last_synced_at", "updated_at"])
 
-            fallback_params = {**adset_params_base, "campaign_id": fallback_campaign_id}
-            return _create_adset_with_goal_fallback(account, fallback_params, "TRAFFIC")
+            refreshed_params = {**adset_params_base, "campaign_id": refreshed_campaign_id}
+            try:
+                return _create_adset_with_goal_fallback(account, refreshed_params, unified_objective)
+            except Exception as retry_exc:
+                # Legacy fallback path retained for ENGAGEMENT when objective-specific retry still fails.
+                if unified_objective == "ENGAGEMENT" and _is_performance_goal_unavailable_error(retry_exc):
+                    logger.warning(
+                        "ENGAGEMENT retry failed after campaign refresh; falling back to TRAFFIC objective for campaign %s: %s",
+                        campaign.id,
+                        retry_exc,
+                    )
+                    fallback_campaign = _create_meta_campaign_with_objective(
+                        account,
+                        campaign,
+                        "OUTCOME_TRAFFIC",
+                    )
+                    fallback_campaign_id = fallback_campaign["id"]
+
+                    if platform_campaign:
+                        platform_campaign.platform_campaign_id = fallback_campaign_id
+                        platform_campaign.status = "PAUSED"
+                        platform_campaign.last_synced_at = timezone.now()
+                        platform_campaign.save(update_fields=["platform_campaign_id", "status", "last_synced_at", "updated_at"])
+
+                    fallback_params = {**adset_params_base, "campaign_id": fallback_campaign_id}
+                    return _create_adset_with_goal_fallback(account, fallback_params, "TRAFFIC")
+
+                raise retry_exc
 
         raise
 
@@ -407,6 +431,44 @@ def _resolve_dsa_fields(account: AdAccount, targeting_config: dict) -> dict:
         "EU targeting detected but DSA payor/beneficiary is not configured. "
         "Set account defaults in Meta or configure META_DEFAULT_DSA_PAYOR / META_DEFAULT_DSA_BENEFICIARY."
     )
+
+
+def _validate_meta_conversions_config(integration: AdIntegration, draft: dict) -> None:
+    """Fail fast when Meta CONVERSIONS prerequisites are missing."""
+    draft = draft or {}
+    has_pixel = bool(draft.get("pixel_id"))
+    has_custom_conversion = bool(draft.get("custom_conversion_id"))
+    has_event = bool(draft.get("event_name"))
+
+    # Current request contract does not expose explicit conversion config fields.
+    # Keep this strict to avoid repetitive provider-side failures.
+    if not has_custom_conversion and not (has_pixel and has_event):
+        raise ValueError(
+            "META objective CONVERSIONS requires conversion configuration. "
+            "Provide either custom_conversion_id, or both pixel_id and event_name, "
+            "before publishing this campaign."
+        )
+
+
+def _ensure_meta_campaign_objective(account: AdAccount, campaign_id: str, expected_meta_objective: str) -> None:
+    """Ensure reused Meta campaign objective still matches current unified objective."""
+    try:
+        existing = MetaCampaign(campaign_id).api_get(fields=["objective"])
+        existing_objective = None
+        if isinstance(existing, dict):
+            existing_objective = existing.get("objective")
+        if not existing_objective:
+            existing_objective = getattr(existing, "objective", None)
+        if existing_objective and existing_objective != expected_meta_objective:
+            raise ValueError(
+                "Existing Meta campaign objective mismatch: "
+                f"expected {expected_meta_objective}, found {existing_objective}."
+            )
+    except ValueError:
+        raise
+    except Exception as exc:
+        # If objective cannot be read, continue with existing behavior.
+        logger.warning("Unable to verify Meta campaign objective for %s: %s", campaign_id, exc)
 
 
 # ────────────────────────────────────────────────────────────
@@ -587,6 +649,12 @@ def create_ad_on_meta(
             f"Unsupported objective '{campaign.objective}' for Meta campaign creation.",
         )
 
+    if campaign.objective == "CONVERSIONS":
+        try:
+            _validate_meta_conversions_config(integration, draft)
+        except ValueError as exc:
+            raise MetaAdCreationError("VALIDATION", str(exc)) from exc
+
     # ── Step 1: Campaign ────────────────────────────────────
     platform_campaign = PlatformCampaign.objects.filter(
         unified_campaign=campaign,
@@ -622,7 +690,28 @@ def create_ad_on_meta(
             )
     else:
         meta_campaign_id = platform_campaign.platform_campaign_id
-        logger.info("Reusing existing Meta Campaign: %s", meta_campaign_id)
+        expected_meta_objective = _meta_objective(campaign.objective)
+        try:
+            _ensure_meta_campaign_objective(account, meta_campaign_id, expected_meta_objective)
+            logger.info("Reusing existing Meta Campaign: %s", meta_campaign_id)
+        except ValueError:
+            # Keep local linkage healthy by replacing stale/mismatched campaign.
+            try:
+                replacement = account.create_campaign(params={
+                    "name": campaign.name,
+                    "objective": expected_meta_objective,
+                    "status": "PAUSED",
+                    "special_ad_categories": [],
+                    "is_adset_budget_sharing_enabled": False,
+                })
+                meta_campaign_id = replacement["id"]
+                platform_campaign.platform_campaign_id = meta_campaign_id
+                platform_campaign.status = "PAUSED"
+                platform_campaign.last_synced_at = timezone.now()
+                platform_campaign.save(update_fields=["platform_campaign_id", "status", "last_synced_at", "updated_at"])
+                logger.info("Replaced Meta Campaign due to objective mismatch: %s", meta_campaign_id)
+            except Exception as exc:
+                raise MetaAdCreationError("CAMPAIGN", f"Could not replace mismatched Meta campaign: {exc}") from exc
 
     # ── Step 2: Ad Set ──────────────────────────────────────
     ad_group = AdGroup.objects.filter(platform_campaign=platform_campaign).first()

@@ -472,6 +472,21 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 'missing_fields': f"Required to publish: {', '.join(missing)}"
             })
 
+        # Meta-specific preflight guard to prevent known provider-side failures.
+        platforms = draft_data.get('platforms', [])
+        if 'META' in platforms and campaign.objective == 'CONVERSIONS':
+            has_pixel = bool(draft_data.get('pixel_id'))
+            has_custom_conversion = bool(draft_data.get('custom_conversion_id'))
+            has_event = bool(draft_data.get('event_name'))
+            if not has_custom_conversion and not (has_pixel and has_event):
+                raise ValidationError({
+                    'objective': (
+                        "META objective CONVERSIONS requires conversion configuration. "
+                        "Provide custom_conversion_id, or both pixel_id and event_name, "
+                        "before publishing."
+                    )
+                })
+
         # Create budgets
         for budget in draft_data.get('budgets', []):
             CampaignBudget.objects.update_or_create(
