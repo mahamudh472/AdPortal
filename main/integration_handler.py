@@ -16,9 +16,9 @@ from django.shortcuts import redirect
 from main.utils.google_oauth import generate_oauth_state, validate_oauth_state
 
 def fetch_tiktok_ads_account(organization):
-    ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.TIKTOK)
-    if ad_profile.exists():
-        access_token = ad_profile.first().access_token
+    ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.TIKTOK).first()
+    if ad_profile:
+        access_token = ad_profile.access_token
         advertisers = requests.get(
             "https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/",
             headers={"Access-Token": access_token},
@@ -31,20 +31,88 @@ def fetch_tiktok_ads_account(organization):
         return {'data': data}
     return None
 
-def fetch_meta_ads_account(organization):
-    ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META)
-    if ad_profile.exists():
-        access_token = ad_profile.first().access_token
-        ad_accounts = requests.get(
-            "https://graph.facebook.com/v18.0/me/adaccounts",
-            params={"access_token": access_token},
+def _normalize_meta_account_id(account_id):
+    value = str(account_id or "").strip()
+    if value.startswith("act_"):
+        return value[4:]
+    return value
+
+
+def fetch_meta_ads_account(organization, page_id=None):
+    ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.META).first()
+    if ad_profile:
+        access_token = ad_profile.access_token
+
+        # Keep backward compatibility for callers that still request the unfiltered list.
+        if not page_id:
+            ad_accounts = requests.get(
+                "https://graph.facebook.com/v18.0/me/adaccounts",
+                params={"access_token": access_token},
+            ).json()
+
+            data = ad_accounts.get('data', [])
+            for item in data:
+                item['acc_id'] = item.pop('id')
+
+            return ad_accounts
+
+        page_details = requests.get(
+            f"https://graph.facebook.com/v18.0/{page_id}",
+            params={
+                "access_token": access_token,
+                "fields": "id,name,business{id,name}",
+            },
         ).json()
 
-        data = ad_accounts.get('data', [])
-        for item in data:
-            item['acc_id'] = item.pop('id')
+        if page_details.get("error"):
+            return {
+                "error": "Unable to fetch the selected Facebook page details.",
+                "status_code": status.HTTP_400_BAD_REQUEST,
+                "details": page_details.get("error"),
+            }
 
-        return ad_accounts
+        page_business = page_details.get("business") or {}
+        business_id = page_business.get("id")
+        if not business_id:
+            return {
+                "error": "Selected page is not linked to a Business Manager.",
+                "status_code": status.HTTP_400_BAD_REQUEST,
+            }
+
+        all_accounts = []
+        seen_accounts = set()
+        for edge in ["owned_ad_accounts", "client_ad_accounts"]:
+            ad_accounts = requests.get(
+                f"https://graph.facebook.com/v18.0/{business_id}/{edge}",
+                params={
+                    "access_token": access_token,
+                    "fields": "id,name,account_id,currency,account_status,business{id,name}",
+                },
+            ).json()
+
+            for item in ad_accounts.get('data', []):
+                acc_id = item.get('id')
+                normalized_id = _normalize_meta_account_id(acc_id)
+                if normalized_id in seen_accounts:
+                    continue
+
+                item['acc_id'] = acc_id
+                item['page_id'] = str(page_id)
+                item['business_id'] = business_id
+                item['business_name'] = page_business.get('name')
+                all_accounts.append(item)
+                seen_accounts.add(normalized_id)
+
+        return {
+            "data": all_accounts,
+            "page": {
+                "id": str(page_id),
+                "name": page_details.get("name"),
+                "business_id": business_id,
+                "business_name": page_business.get("name"),
+            },
+        }
+
     return None
 
 
@@ -483,7 +551,13 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
         platform = request.GET.get('platform', "META").upper()
         profiles = None
         if platform == "META":
-            profiles = fetch_meta_ads_account(organization)
+            page_id = request.GET.get('page_id')
+            if not page_id:
+                return Response(
+                    {'error': 'page_id is required for META ad account listing.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            profiles = fetch_meta_ads_account(organization, page_id=page_id)
         elif platform == "TIKTOK":
             profiles = fetch_tiktok_ads_account(organization)
         elif platform == "GOOGLE":
@@ -509,26 +583,62 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser]
 
     def post(self, request, *args, **kwargs):
-        platform = request.data.get('platform', None)
+        platform = str(request.data.get('platform', '')).upper()
         account_id = request.data.get('acc_id', None)
 
         if not platform or not account_id:
-            return Response({'error': 'platfrom or account id is not provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'platform and acc_id are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        integration = AdIntegration.objects.filter(organization=organization, platform=platform)
-        if not integration.exists():
+        integration = AdIntegration.objects.filter(organization=organization, platform=platform).first()
+        if not integration:
             return Response({'error': 'Integration not found'}, status=status.HTTP_400_BAD_REQUEST)
 
-        integration=integration.first()
-        integration.ad_account_id = account_id
-        integration.save()
+        if platform == Platform.META:
+            page_id = request.data.get('page_id')
+            if not page_id:
+                return Response({'error': 'page_id is required for META.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"success": "Ad account selected."})
+            profiles = fetch_meta_ads_account(organization, page_id=page_id)
+            if profiles is None:
+                return Response({'error': 'META integration not found.'}, status=status.HTTP_400_BAD_REQUEST)
+            if isinstance(profiles, dict) and profiles.get("error"):
+                response_status_value = profiles.get("status_code", status.HTTP_400_BAD_REQUEST)
+                response_status = (
+                    response_status_value
+                    if isinstance(response_status_value, int)
+                    else status.HTTP_400_BAD_REQUEST
+                )
+                return Response(profiles, status=response_status)
+
+            allowed_accounts = {
+                _normalize_meta_account_id(item.get('acc_id'))
+                for item in profiles.get('data', [])
+                if item.get('acc_id')
+            }
+            if _normalize_meta_account_id(account_id) not in allowed_accounts:
+                return Response(
+                    {'error': 'Selected ad account is not linked to the selected Facebook page.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            integration.ad_account_id = str(account_id)
+            integration.page_id = str(page_id)
+            integration.save(update_fields=["ad_account_id", "page_id"])
+            return Response({
+                "success": "Ad account selected.",
+                "ad_account_id": integration.ad_account_id,
+                "page_id": integration.page_id,
+            })
+
+        integration.ad_account_id = account_id
+        integration.save(update_fields=["ad_account_id"])
+
+        return Response({"success": "Ad account selected.", "ad_account_id": integration.ad_account_id})
 
 
 class MetaPageListView(RequiredOrganizationIDMixin, APIView):

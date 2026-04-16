@@ -92,21 +92,28 @@
 
 ### `GET /api/v1/main/get-ad-profiles/`
 - Query params: `org_id`, `platform` (`META|TIKTOK|GOOGLE`).
+- Meta-only required query param: `page_id`.
 - Response: external ad account profile list from provider API.
+
+Meta example:
+
+`GET /api/v1/main/get-ad-profiles/?org_id=<ORG_ID>&platform=META&page_id=123456789`
 
 ### `POST /api/v1/main/select-ad-profile/`
 - Query params: `org_id`.
 - Request body:
 
 ```json
-{"platform": "META", "acc_id": "act_123456"}
+{"platform": "META", "acc_id": "act_123456", "page_id": "123456789"}
 ```
 
 - Response:
 
 ```json
-{"success": "Ad account selected."}
+{"success": "Ad account selected.", "ad_account_id": "act_123456", "page_id": "123456789"}
 ```
+
+- For `META`, the selected `acc_id` must belong to the provided `page_id`.
 
 ### `GET /api/v1/main/get-meta-pages/`
 - Query params: `org_id`.
