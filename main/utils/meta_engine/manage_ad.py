@@ -241,9 +241,11 @@ CTA_TO_META = {
 }
 
 
-def _normalize_cta(raw_cta: str) -> str:
+def _normalize_cta(raw_cta: str | None) -> str:
     """Convert an internal CTA value to a valid Meta API call_to_action type."""
-    key = raw_cta.upper().replace(" ", "_").strip()
+    if not raw_cta:
+        return "LEARN_MORE"
+    key = str(raw_cta).upper().replace(" ", "_").strip()
     return CTA_TO_META.get(key, key)
 
 
@@ -309,9 +311,15 @@ _COUNTRY_NAME_TO_CODE = {
 }
 
 
-def _normalize_country(value: str) -> str:
+def _normalize_country(value: str | None) -> str:
     """Convert a country name or code to a 2-letter ISO code for Meta."""
-    v = value.strip()
+    if not value:
+        return ""
+
+    v = str(value).strip()
+    if not v:
+        return ""
+
     # Already a 2-letter code
     if len(v) == 2 and v.isalpha():
         return v.upper()
@@ -320,12 +328,18 @@ def _normalize_country(value: str) -> str:
 
 def _build_targeting(targeting_config: dict) -> dict:
     """Convert our normalised targeting into Meta's targeting spec."""
+    targeting_config = targeting_config or {}
     targeting = {}
 
-    locations = targeting_config.get("locations")
+    locations = targeting_config.get("locations") or []
+    if isinstance(locations, str):
+        locations = [locations]
+
     if locations:
         codes = [_normalize_country(loc) for loc in locations]
-        targeting["geo_locations"] = {"countries": codes}
+        codes = [code for code in codes if code]
+        if codes:
+            targeting["geo_locations"] = {"countries": codes}
 
     age_min = targeting_config.get("min_age")
     age_max = targeting_config.get("max_age")
@@ -334,7 +348,7 @@ def _build_targeting(targeting_config: dict) -> dict:
     if age_max:
         targeting["age_max"] = int(age_max)
 
-    gender = targeting_config.get("gender", "").lower()
+    gender = str(targeting_config.get("gender") or "").strip().lower()
     if gender == "male":
         targeting["genders"] = [1]
     elif gender == "female":
