@@ -8,6 +8,23 @@ from main.models import UnifiedCampaign
 from main.tests.base import MainTestBase
 
 BASE = "/api/v1/main"
+EXPECTED_CAMPAIGN_FIELDS = {
+    "id",
+    "name",
+    "objective",
+    "platforms",
+    "matrics",
+    "ads",
+    "audience_targeting",
+    "status",
+    "created_at",
+    "ai_insights",
+    "total_budget",
+    "total_spent",
+    "remaining_budget",
+    "budgets",
+    "file_url",
+}
 
 
 class CreateAdDraftTests(MainTestBase):
@@ -30,6 +47,11 @@ class CreateAdDraftTests(MainTestBase):
         self.assertTrue(
             UnifiedCampaign.objects.filter(name="My Campaign", status="DRAFT").exists()
         )
+
+    def test_create_draft_response_matches_campaign_retrieve_shape(self):
+        res = self.client.post(self._url(), self._draft_payload(), format="json")
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(EXPECTED_CAMPAIGN_FIELDS.issubset(set(res.data.keys())))
 
     def test_create_draft_without_campaign_name_returns_400(self):
         payload = self._draft_payload()

@@ -306,7 +306,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             self._publish_campaign(campaign, organization)
 
         campaign.refresh_from_db()
-        return Response(self._get_campaign_data(campaign), status=response_status)
+        return Response(
+            self._get_campaign_data(campaign, request=request),
+            status=response_status,
+        )
 
     def _create_draft(self, organization, data, ad_file=None):
         campaign_name = data.pop('campaign_name', None)
@@ -445,69 +448,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 result[key] = value
         return result
 
-    def _get_campaign_data(self, campaign):
-        """Build a consistent response regardless of campaign status."""
-        response = {
-            'campaign_id': campaign.id,
-            'status': campaign.status,
-            'campaign_name': campaign.name,
-            'objective': campaign.objective,
-        }
-
-        if campaign.status == 'DRAFT':
-            draft = campaign.draft_data or {}
-            response.update(draft)
-            # Always include platforms as a list, falling back to [] when not yet set
-            response['platforms'] = draft.get('platforms') or []
-        else:
-            # Read the current state from real models
-            platform_campaigns = campaign.platform_campaigns.select_related('integration').prefetch_related(
-                'ad_groups__ads__assets'
-            )
-
-            response['platforms'] = [
-                pc.integration.platform for pc in platform_campaigns
-            ]
-
-            budgets = CampaignBudget.objects.filter(campaign=campaign)
-            response['budgets'] = [
-                {
-                    'platform': b.platform,
-                    'budget_type': b.budget_type,
-                    'budget': round(b.daily_budget_minor / 100, 2),
-                    'start_date': b.start_date.isoformat() if b.start_date else None,
-                    'end_date': b.end_date.isoformat() if b.end_date else None,
-                    'run_continuously': b.run_continuously,
-                }
-                for b in budgets
-            ]
-
-            # Collect targeting & creative from the first ad group/ad
-            # (all share the same data since they were created/updated together)
-            first_pc = platform_campaigns.first()
-            if first_pc:
-                first_ag = first_pc.ad_groups.first()
-                if first_ag:
-                    targeting = first_ag.targeting_config or {}
-                    response['min_age'] = targeting.get('min_age')
-                    response['max_age'] = targeting.get('max_age')
-                    response['gender'] = targeting.get('gender')
-                    response['locations'] = targeting.get('locations')
-                    response['keywords'] = targeting.get('keywords')
-
-                    first_ad = first_ag.ads.first()
-                    if first_ad:
-                        response['creative'] = {
-                            'ad_name': first_ad.name,
-                            'headline': first_ad.headline,
-                            'primary_text': first_ad.primary_text,
-                            'description': first_ad.description,
-                            'call_to_action': first_ad.call_to_action,
-                            'destination_url': first_ad.destination_url,
-                            'assets': [a.file.url for a in first_ad.assets.all()],
-                        }
-
-        return response
+    def _get_campaign_data(self, campaign, request=None):
+        """Return the same payload shape as the single-campaign retrieve endpoint."""
+        serializer = CampaignSerializer(campaign, context={'request': request})
+        return serializer.data
 
     def _publish_campaign(self, campaign, organization):
         """Validate all required fields and create platform objects."""
