@@ -134,9 +134,46 @@ EU_COUNTRY_CODES = {
     "RO", "SK", "SI", "ES", "SE", "IS", "LI", "NO",
 }
 
+# Conservative defaults; can be overridden in Django settings.
+DEFAULT_META_MIN_DAILY_BUDGET_MINOR = 500
+DEFAULT_META_MIN_LIFETIME_BUDGET_MINOR = 2000
+
+
+def _input_budget_to_minor(value) -> int:
+    """Normalize incoming budget value (dollars) to minor units (cents)."""
+    try:
+        return int(round(float(value) * 100))
+    except (TypeError, ValueError):
+        return 0
+
 
 def _meta_objective(unified_objective: str) -> str:
     return OBJECTIVE_TO_META.get(unified_objective, "OUTCOME_TRAFFIC")
+
+
+def _has_meta_conversions_config(draft: dict | None) -> bool:
+    draft = draft or {}
+    return bool(draft.get("custom_conversion_id")) or bool(
+        draft.get("pixel_id") and draft.get("event_name")
+    )
+
+
+def _effective_meta_objective(unified_objective: str, draft: dict | None = None) -> str:
+    """Return the practical objective used for Meta calls.
+
+    Current API contract does not expose conversion config fields reliably.
+    If CONVERSIONS lacks required config, gracefully degrade to TRAFFIC so
+    ad creation can still proceed.
+    """
+    if unified_objective == "CONVERSIONS" and not _has_meta_conversions_config(draft):
+        return OBJECTIVE_TO_META.get("TRAFFIC", "OUTCOME_TRAFFIC")
+    return _meta_objective(unified_objective)
+
+
+def _effective_adset_objective(unified_objective: str, draft: dict | None = None) -> str:
+    if unified_objective == "CONVERSIONS" and not _has_meta_conversions_config(draft):
+        return "TRAFFIC"
+    return unified_objective
 
 
 def _optimization_goal(unified_objective: str) -> str:
@@ -433,6 +470,41 @@ def _resolve_dsa_fields(account: AdAccount, targeting_config: dict) -> dict:
     )
 
 
+def _validate_meta_budget_floor(budget: CampaignBudget | None, draft: dict | None = None) -> None:
+    """Fail fast if budget is below conservative Meta minimums."""
+    min_daily = int(getattr(settings, "META_MIN_DAILY_BUDGET_MINOR", DEFAULT_META_MIN_DAILY_BUDGET_MINOR))
+    min_lifetime = int(
+        getattr(settings, "META_MIN_LIFETIME_BUDGET_MINOR", DEFAULT_META_MIN_LIFETIME_BUDGET_MINOR)
+    )
+
+    if budget:
+        amount = int(budget.daily_budget_minor or 0)
+        if budget.budget_type == "DAILY" and amount < min_daily:
+            raise ValueError(
+                f"META daily budget is too low. Minimum is {min_daily} minor units."
+            )
+        if budget.budget_type != "DAILY" and amount < min_lifetime:
+            raise ValueError(
+                f"META lifetime budget is too low. Minimum is {min_lifetime} minor units."
+            )
+        return
+
+    draft = draft or {}
+    for item in draft.get("budgets", []):
+        if item.get("platform") != "META":
+            continue
+        amount = _input_budget_to_minor(item.get("budget"))
+        budget_type = str(item.get("budget_type") or "").upper()
+        if budget_type == "DAILY" and amount < min_daily:
+            raise ValueError(
+                f"META daily budget is too low. Minimum is {min_daily} minor units."
+            )
+        if budget_type != "DAILY" and amount < min_lifetime:
+            raise ValueError(
+                f"META lifetime budget is too low. Minimum is {min_lifetime} minor units."
+            )
+
+
 def _validate_meta_conversions_config(integration: AdIntegration, draft: dict) -> None:
     """Fail fast when Meta CONVERSIONS prerequisites are missing."""
     draft = draft or {}
@@ -642,6 +714,8 @@ def create_ad_on_meta(
 
     budget = CampaignBudget.objects.filter(campaign=campaign, platform="META").first()
     draft = campaign.draft_data or {}
+    effective_unified_objective = _effective_adset_objective(campaign.objective, draft)
+    effective_meta_objective = _effective_meta_objective(campaign.objective, draft)
 
     if campaign.objective not in OBJECTIVE_TO_META:
         raise MetaAdCreationError(
@@ -649,11 +723,10 @@ def create_ad_on_meta(
             f"Unsupported objective '{campaign.objective}' for Meta campaign creation.",
         )
 
-    if campaign.objective == "CONVERSIONS":
-        try:
-            _validate_meta_conversions_config(integration, draft)
-        except ValueError as exc:
-            raise MetaAdCreationError("VALIDATION", str(exc)) from exc
+    try:
+        _validate_meta_budget_floor(budget, draft)
+    except ValueError as exc:
+        raise MetaAdCreationError("VALIDATION", str(exc)) from exc
 
     # ── Step 1: Campaign ────────────────────────────────────
     platform_campaign = PlatformCampaign.objects.filter(
@@ -665,7 +738,7 @@ def create_ad_on_meta(
         try:
             meta_campaign = account.create_campaign(params={
                 "name": campaign.name,
-                "objective": _meta_objective(campaign.objective),
+                "objective": effective_meta_objective,
                 "status": "PAUSED",
                 "special_ad_categories": [],
                 "is_adset_budget_sharing_enabled": False,
@@ -690,7 +763,7 @@ def create_ad_on_meta(
             )
     else:
         meta_campaign_id = platform_campaign.platform_campaign_id
-        expected_meta_objective = _meta_objective(campaign.objective)
+        expected_meta_objective = effective_meta_objective
         try:
             _ensure_meta_campaign_objective(account, meta_campaign_id, expected_meta_objective)
             logger.info("Reusing existing Meta Campaign: %s", meta_campaign_id)
@@ -764,13 +837,13 @@ def create_ad_on_meta(
             draft_budgets = draft.get("budgets", [])
             meta_budget = next((b for b in draft_budgets if b.get("platform") == "META"), None)
             if meta_budget:
-                adset_params["daily_budget"] = int(meta_budget["budget"])
+                adset_params["daily_budget"] = _input_budget_to_minor(meta_budget.get("budget"))
 
         try:
             meta_adset, used_goal, used_billing_event = _create_adset_resilient(
                 account,
                 adset_params,
-                campaign.objective,
+                effective_unified_objective,
                 campaign,
                 platform_campaign,
             )
@@ -861,7 +934,7 @@ def create_ad_on_meta(
                 replacement_adset, used_goal, used_billing_event = _create_adset_resilient(
                     account,
                     replacement_adset_params,
-                    campaign.objective,
+                    effective_unified_objective,
                     campaign,
                     platform_campaign,
                 )

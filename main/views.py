@@ -280,6 +280,13 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         'call_to_action', 'destination_url'
     ]
 
+    def _budget_to_minor_units(self, value):
+        """Normalize incoming budget (dollars) to minor units (cents)."""
+        try:
+            return int(round(float(value) * 100))
+        except (TypeError, ValueError):
+            raise ValidationError({'budget': 'Invalid budget value.'})
+
     def post(self, request, *args, **kwargs):
         serializer = CreateAdSerializer(data=request.data, context={'request': request})
         snowflake_id = self.get_org_id()
@@ -386,7 +393,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                     platform=budget['platform'],
                     defaults={
                         'budget_type': budget['budget_type'],
-                        'daily_budget_minor': budget['budget'],
+                        'daily_budget_minor': self._budget_to_minor_units(budget['budget']),
                         'start_date': budget['start_date'],
                         'end_date': budget['end_date'],
                         'run_continuously': budget['run_continuously'],
@@ -472,21 +479,6 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 'missing_fields': f"Required to publish: {', '.join(missing)}"
             })
 
-        # Meta-specific preflight guard to prevent known provider-side failures.
-        platforms = draft_data.get('platforms', [])
-        if 'META' in platforms and campaign.objective == 'CONVERSIONS':
-            has_pixel = bool(draft_data.get('pixel_id'))
-            has_custom_conversion = bool(draft_data.get('custom_conversion_id'))
-            has_event = bool(draft_data.get('event_name'))
-            if not has_custom_conversion and not (has_pixel and has_event):
-                raise ValidationError({
-                    'objective': (
-                        "META objective CONVERSIONS requires conversion configuration. "
-                        "Provide custom_conversion_id, or both pixel_id and event_name, "
-                        "before publishing."
-                    )
-                })
-
         # Create budgets
         for budget in draft_data.get('budgets', []):
             CampaignBudget.objects.update_or_create(
@@ -494,7 +486,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 platform=budget['platform'],
                 defaults={
                     'budget_type': budget['budget_type'],
-                    'daily_budget_minor': budget['budget'],
+                    'daily_budget_minor': self._budget_to_minor_units(budget['budget']),
                     'start_date': budget['start_date'],
                     'end_date': budget['end_date'],
                     'run_continuously': budget['run_continuously'],
