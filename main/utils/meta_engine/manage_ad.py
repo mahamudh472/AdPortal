@@ -115,6 +115,19 @@ OBJECTIVE_ADSET_RULES = {
     },
 }
 
+# Billing events are constrained by optimization goal. Keep this conservative
+# to avoid predictable Meta API validation failures.
+OPTIMIZATION_BILLING_COMPATIBILITY = {
+    "OFFSITE_CONVERSIONS": ["IMPRESSIONS"],
+    "LINK_CLICKS": ["LINK_CLICKS", "IMPRESSIONS"],
+    "LANDING_PAGE_VIEWS": ["IMPRESSIONS"],
+    "LEAD_GENERATION": ["IMPRESSIONS"],
+    "REACH": ["IMPRESSIONS"],
+    "IMPRESSIONS": ["IMPRESSIONS"],
+    "POST_ENGAGEMENT": ["IMPRESSIONS"],
+    "APP_INSTALLS": ["IMPRESSIONS"],
+}
+
 EU_COUNTRY_CODES = {
     "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE",
     "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT",
@@ -150,17 +163,27 @@ def _optimization_goal_candidates(unified_objective: str) -> list[str]:
 
 def _billing_event_candidates(unified_objective: str, optimization_goal: str) -> list[str]:
     """Return ordered billing-event candidates for a given objective/goal pair."""
-    defaults = OBJECTIVE_ADSET_RULES.get(unified_objective, {}).get(
+    objective_defaults = OBJECTIVE_ADSET_RULES.get(unified_objective, {}).get(
         "billing_events", ["IMPRESSIONS"]
     )
-    candidates = list(defaults)
+    goal_allowed = OPTIMIZATION_BILLING_COMPATIBILITY.get(
+        optimization_goal,
+        ["IMPRESSIONS"],
+    )
+
+    # Prefer objective defaults, but only when compatible with selected goal.
+    candidates = [event for event in objective_defaults if event in goal_allowed]
+
+    # If objective defaults produced no valid option, fall back to goal-safe list.
+    if not candidates:
+        candidates = list(goal_allowed)
 
     # Keep billing event aligned with key optimization goals when possible.
     if optimization_goal == "LINK_CLICKS":
         candidates = ["LINK_CLICKS"] + candidates
-    elif optimization_goal == "POST_ENGAGEMENT":
+    elif optimization_goal == "POST_ENGAGEMENT" and "POST_ENGAGEMENT" in goal_allowed:
         candidates = ["POST_ENGAGEMENT"] + candidates
-    elif optimization_goal == "APP_INSTALLS":
+    elif optimization_goal == "APP_INSTALLS" and "APP_INSTALLS" in goal_allowed:
         candidates = ["APP_INSTALLS"] + candidates
 
     # De-duplicate while preserving order.

@@ -1129,6 +1129,8 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
     def post(self, request, *args, **kwargs):
+        from main.utils.meta_engine.manage_ad import MetaAdCreationError
+
         snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
@@ -1266,6 +1268,17 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
             return Response(
                 {
                     'error': str(exc),
+                    'platform': platform,
+                    'campaign_id': campaign.id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except MetaAdCreationError as exc:
+            return Response(
+                {
+                    'error': str(exc),
+                    'stage': exc.stage,
                     'platform': platform,
                     'campaign_id': campaign.id,
                 },
