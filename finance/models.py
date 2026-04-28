@@ -103,6 +103,15 @@ class Subscription(models.Model):
 
     cancel_at_period_end = models.BooleanField(default=False)
 
+    # Set when a downgrade is scheduled; cleared by the webhook once applied.
+    pending_plan = models.ForeignKey(
+        "Plan",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pending_subscriptions",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
