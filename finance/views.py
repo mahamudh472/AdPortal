@@ -106,137 +106,136 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
 
                 is_upgrade = new_plan.price > current_plan.price
 
+                # Retrieve the Stripe subscription to get the subscription-item ID
+                stripe_sub = stripe.Subscription.retrieve(active_sub.stripe_subscription_id)
+                stripe_item_id = stripe_sub["items"]["data"][0]["id"]
+                current_stripe_price_id = stripe_sub["items"]["data"][0]["price"]["id"]
+                existing_schedule_id = stripe_sub.get("schedule")
 
-            # Retrieve the Stripe subscription to get the subscription-item ID
-            stripe_sub = stripe.Subscription.retrieve(active_sub.stripe_subscription_id)
-            stripe_item_id = stripe_sub["items"]["data"][0]["id"]
-            current_stripe_price_id = stripe_sub["items"]["data"][0]["price"]["id"]
-            existing_schedule_id = stripe_sub.get("schedule")
-
-            # current_period_end may be absent immediately after a billing-cycle
-            # reset (e.g. an upgrade with billing_cycle_anchor='now').
-            # Fall back to our locally-stored value in that case.
-            _cpe_stripe = stripe_sub.get("current_period_end")
-            if _cpe_stripe:
-                current_period_end = int(_cpe_stripe)
-            elif active_sub.current_period_end:
-                current_period_end = calendar.timegm(
-                    active_sub.current_period_end.timetuple()
-                )
-            else:
-                current_period_end = None
-
-            # Resolve the Stripe price ID for the new plan
-            new_stripe_price_id = self._get_or_create_stripe_price(new_plan)
-
-            if is_upgrade:
-                # ── Immediate upgrade ──────────────────────────────────────
-                # If a downgrade schedule was previously queued, release it first
-                # so the upgrade can be applied cleanly.
-                if existing_schedule_id:
-                    try:
-                        stripe.SubscriptionSchedule.release(existing_schedule_id)
-                    except stripe.error.InvalidRequestError:
-                        pass  # already released or not applicable
-
-                stripe.Subscription.modify(
-                    active_sub.stripe_subscription_id,
-                    items=[{"id": stripe_item_id, "price": new_stripe_price_id}],
-                    proration_behavior="always_invoice",  # charge the difference now
-                    billing_cycle_anchor="now",           # reset billing cycle
-                )
-                # Update local record; clear any pending downgrade too
-                active_sub.plan = new_plan
-                active_sub.pending_plan = None
-                active_sub.save(update_fields=["plan", "pending_plan"])
-
-                return Response(
-                    {
-                        "message": f"Successfully upgraded to the {new_plan.name} plan. "
-                                   "You have been charged the prorated difference."
-                    },
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                # ── Scheduled downgrade via Subscription Schedule ──────────
-                # We use a SubscriptionSchedule so the price on the Stripe
-                # subscription object does NOT change until the billing cycle
-                # ends.  This prevents our webhook from seeing a price change
-                # and applying it immediately.
-                if not current_period_end:
-                    return Response(
-                        {"error": "Unable to determine the current billing period end. "
-                                  "Please try again in a moment."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if existing_schedule_id:
-                    # An existing schedule is already attached — update its phases
-                    schedule = stripe.SubscriptionSchedule.retrieve(existing_schedule_id)
-                    stripe.SubscriptionSchedule.modify(
-                        existing_schedule_id,
-                        end_behavior="release",
-                        phases=[
-                            {
-                                "items": [{"price": current_stripe_price_id, "quantity": 1}],
-                                "start_date": schedule["phases"][0]["start_date"],
-                                "end_date": current_period_end,
-                            },
-                            {
-                                "items": [{"price": new_stripe_price_id, "quantity": 1}],
-                            },
-                        ],
+                # current_period_end may be absent immediately after a billing-cycle
+                # reset (e.g. an upgrade with billing_cycle_anchor='now').
+                # Fall back to our locally-stored value in that case.
+                _cpe_stripe = stripe_sub.get("current_period_end")
+                if _cpe_stripe:
+                    current_period_end = int(_cpe_stripe)
+                elif active_sub.current_period_end:
+                    current_period_end = calendar.timegm(
+                        active_sub.current_period_end.timetuple()
                     )
                 else:
-                    # No schedule yet — create one.
-                    # Guard against a concurrent request that already created
-                    # the schedule between our retrieve() and now.
-                    try:
-                        schedule = stripe.SubscriptionSchedule.create(
-                            from_subscription=active_sub.stripe_subscription_id
-                        )
-                    except stripe.error.InvalidRequestError as exc:
-                        if "already attached to a schedule" in str(exc):
-                            # Re-fetch to get the schedule ID the concurrent
-                            # request just created and update it instead.
-                            stripe_sub = stripe.Subscription.retrieve(
-                                active_sub.stripe_subscription_id
-                            )
-                            existing_schedule_id = stripe_sub.get("schedule")
-                            if not existing_schedule_id:
-                                raise
-                            schedule = stripe.SubscriptionSchedule.retrieve(
-                                existing_schedule_id
-                            )
-                        else:
-                            raise
+                    current_period_end = None
 
-                    stripe.SubscriptionSchedule.modify(
-                        schedule["id"],
-                        end_behavior="release",
-                        phases=[
-                            {
-                                "items": [{"price": current_stripe_price_id, "quantity": 1}],
-                                "start_date": schedule["phases"][0]["start_date"],
-                                "end_date": current_period_end,
-                            },
-                            {
-                                "items": [{"price": new_stripe_price_id, "quantity": 1}],
-                            },
-                        ],
+                # Resolve the Stripe price ID for the new plan
+                new_stripe_price_id = self._get_or_create_stripe_price(new_plan)
+
+                if is_upgrade:
+                    # ── Immediate upgrade ──────────────────────────────────────
+                    # If a downgrade schedule was previously queued, release it first
+                    # so the upgrade can be applied cleanly.
+                    if existing_schedule_id:
+                        try:
+                            stripe.SubscriptionSchedule.release(existing_schedule_id)
+                        except stripe.error.InvalidRequestError:
+                            pass  # already released or not applicable
+
+                    stripe.Subscription.modify(
+                        active_sub.stripe_subscription_id,
+                        items=[{"id": stripe_item_id, "price": new_stripe_price_id}],
+                        proration_behavior="always_invoice",  # charge the difference now
+                        billing_cycle_anchor="now",           # reset billing cycle
                     )
+                    # Update local record; clear any pending downgrade too
+                    active_sub.plan = new_plan
+                    active_sub.pending_plan = None
+                    active_sub.save(update_fields=["plan", "pending_plan"])
 
-                # Store pending plan locally; current plan stays unchanged
-                active_sub.pending_plan = new_plan
-                active_sub.save(update_fields=["pending_plan"])
+                    return Response(
+                        {
+                            "message": f"Successfully upgraded to the {new_plan.name} plan. "
+                                       "You have been charged the prorated difference."
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    # ── Scheduled downgrade via Subscription Schedule ──────────
+                    # We use a SubscriptionSchedule so the price on the Stripe
+                    # subscription object does NOT change until the billing cycle
+                    # ends.  This prevents our webhook from seeing a price change
+                    # and applying it immediately.
+                    if not current_period_end:
+                        return Response(
+                            {"error": "Unable to determine the current billing period end. "
+                                      "Please try again in a moment."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
 
-                return Response(
-                    {
-                        "message": f"Downgrade to the {new_plan.name} plan has been scheduled. "
-                                   "It will take effect at the end of your current billing cycle."
-                    },
-                    status=status.HTTP_200_OK,
-                )
+                    if existing_schedule_id:
+                        # An existing schedule is already attached — update its phases
+                        schedule = stripe.SubscriptionSchedule.retrieve(existing_schedule_id)
+                        stripe.SubscriptionSchedule.modify(
+                            existing_schedule_id,
+                            end_behavior="release",
+                            phases=[
+                                {
+                                    "items": [{"price": current_stripe_price_id, "quantity": 1}],
+                                    "start_date": schedule["phases"][0]["start_date"],
+                                    "end_date": current_period_end,
+                                },
+                                {
+                                    "items": [{"price": new_stripe_price_id, "quantity": 1}],
+                                },
+                            ],
+                        )
+                    else:
+                        # No schedule yet — create one.
+                        # Guard against a concurrent request that already created
+                        # the schedule between our retrieve() and now.
+                        try:
+                            schedule = stripe.SubscriptionSchedule.create(
+                                from_subscription=active_sub.stripe_subscription_id
+                            )
+                        except stripe.error.InvalidRequestError as exc:
+                            if "already attached to a schedule" in str(exc):
+                                # Re-fetch to get the schedule ID the concurrent
+                                # request just created and update it instead.
+                                stripe_sub = stripe.Subscription.retrieve(
+                                    active_sub.stripe_subscription_id
+                                )
+                                existing_schedule_id = stripe_sub.get("schedule")
+                                if not existing_schedule_id:
+                                    raise
+                                schedule = stripe.SubscriptionSchedule.retrieve(
+                                    existing_schedule_id
+                                )
+                            else:
+                                raise
+
+                        stripe.SubscriptionSchedule.modify(
+                            schedule["id"],
+                            end_behavior="release",
+                            phases=[
+                                {
+                                    "items": [{"price": current_stripe_price_id, "quantity": 1}],
+                                    "start_date": schedule["phases"][0]["start_date"],
+                                    "end_date": current_period_end,
+                                },
+                                {
+                                    "items": [{"price": new_stripe_price_id, "quantity": 1}],
+                                },
+                            ],
+                        )
+
+                    # Store pending plan locally; current plan stays unchanged
+                    active_sub.pending_plan = new_plan
+                    active_sub.save(update_fields=["pending_plan"])
+
+                    return Response(
+                        {
+                            "message": f"Downgrade to the {new_plan.name} plan has been scheduled. "
+                                       "It will take effect at the end of your current billing cycle."
+                        },
+                        status=status.HTTP_200_OK,
+                    )
 
         # ── No existing subscription → start a new Checkout session ────────
         pending_sub = Subscription.objects.create(
