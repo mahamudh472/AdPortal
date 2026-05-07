@@ -102,3 +102,29 @@ class TikTokCreateAdEndpointTests(MainTestBase):
         self.assertEqual(adgroup_payload["schedule_type"], "SCHEDULE_FROM_NOW")
         platform_campaign.refresh_from_db()
         self.assertEqual(platform_campaign.platform_campaign_id, "camp-123")
+
+    @patch("main.views.create_full_ad_for_tiktok")
+    def test_reuses_existing_tiktok_campaign_on_retry(self, mock_create_full_ad):
+        campaign, _, platform_campaign = self._setup_tiktok_stack()
+        platform_campaign.platform_campaign_id = "camp-existing"
+        platform_campaign.save(update_fields=["platform_campaign_id"])
+
+        mock_create_full_ad.return_value = {
+            "campaign_id": "camp-existing",
+            "adgroup_id": "adgroup-existing",
+            "ad_id": 456,
+            "platform_ad_id": "ad-456",
+        }
+
+        res = self.client.post(
+            self._url(),
+            {
+                "platform": "TIKTOK",
+                "campaign_id": campaign.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 201)
+        _, kwargs = mock_create_full_ad.call_args
+        self.assertFalse(kwargs["force_recreate_campaign"])

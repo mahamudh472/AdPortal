@@ -1228,7 +1228,7 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
             platform_campaign = PlatformCampaign.objects.filter(
                 unified_campaign=campaign,
                 integration=integration,
-            ).first()
+            ).order_by('-updated_at', '-id').first()
 
             if not platform_campaign:
                 return Response(
@@ -1252,10 +1252,18 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            force_recreate_campaign = not bool(platform_campaign.platform_campaign_id)
+            if platform_campaign.platform_campaign_id:
+                print(
+                    f"[DEBUG] Reusing existing TikTok campaign id: {platform_campaign.platform_campaign_id}"
+                )
+            else:
+                print("[DEBUG] No existing TikTok campaign id found; creating a new one.")
+
             result = create_full_ad_for_tiktok(
                 campaign,
                 integration,
-                force_recreate_campaign=True,
+                force_recreate_campaign=force_recreate_campaign,
                 ad_asset=ad_asset,
             )
             platform_campaign.refresh_from_db()

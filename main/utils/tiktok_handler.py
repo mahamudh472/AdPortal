@@ -130,10 +130,12 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
     """Upload first local asset and return (ad_format, asset_id)."""
     asset = local_ad.assets.order_by("-id").first()
     if not asset:
+        print("[DEBUG] No assets found for ad; skipping upload")
         return None, None
 
     existing = PlatformAsset.objects.filter(asset=asset, integration=integration).first()
     if existing:
+        print(f"[DEBUG] Asset already uploaded to TikTok: platform_asset_id={existing.platform_asset_id}")
         if asset.file_type == "VIDEO":
             return "SINGLE_VIDEO", existing.platform_asset_id
         return "SINGLE_IMAGE", existing.platform_asset_id
@@ -148,6 +150,10 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
         field_name = "image_file"
         ad_format = "SINGLE_IMAGE"
 
+    print(f"[DEBUG] Uploading {asset.file_type} asset to TikTok")
+    print(f"[DEBUG] Asset file path: {asset.file.path}")
+    print(f"[DEBUG] Asset file exists: {os.path.exists(asset.file.path)}")
+
     signature = None
     if asset.file_type == "IMAGE":
         hasher = hashlib.md5()
@@ -155,6 +161,7 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
             for chunk in iter(lambda: sig_file.read(1024 * 1024), b""):
                 hasher.update(chunk)
         signature = hasher.hexdigest()
+        print(f"[DEBUG] Computed image signature: {signature}")
 
     # Some TikTok accounts are strict about multipart field names.
     upload_attempts = [field_name]
