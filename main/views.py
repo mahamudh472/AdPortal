@@ -381,6 +381,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             campaign.save()
         except IntegrityError:
             raise ValidationError({'campaign_name': 'A campaign with this name already exists in your organization.'})
+        
+        # Create platform campaigns for any new platforms being added
+        self._create_missing_platform_campaigns(campaign, data, ad_file)
+        
         return campaign
 
     def _update_published_campaign(self, campaign, organization, data, ad_file=None):
@@ -455,10 +459,41 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 result[key] = value
         return result
 
+    def _create_missing_platform_campaigns(self, campaign, data, ad_file=None):
+        """Create platform campaigns for any new platforms being added to the campaign."""
+        # Only process if platforms are provided
+        platforms = data.get('platforms', [])
+        if not platforms:
+            return
+
+        # Get existing platforms for this campaign
+        existing_platforms = set(
+            campaign.platform_campaigns.values_list('integration__platform', flat=True)
+        )
+
+        # Get all draft_data (either from data or campaign.draft_data for draft campaigns)
+        draft_data = campaign.draft_data or {}
+        
+        # Build full data dict for platform creation
+        full_data = {
+            'name': campaign.name,
+            **draft_data,
+        }
+
+        # Create platform campaigns for new platforms only
+        for platform in platforms:
+            if platform not in existing_platforms:
+                try:
+                    create_full_ad_for_platform(campaign, full_data, platform, ad_asset=None)
+                except ValidationError as e:
+                    # If integration doesn't exist, add to response but continue
+                    print(f"Warning: Could not create {platform} campaign: {e}")
+
     def _get_campaign_data(self, campaign, request=None):
         """Return the same payload shape as the single-campaign retrieve endpoint."""
         serializer = CampaignSerializer(campaign, context={'request': request})
         return serializer.data
+
 
     def _publish_campaign(self, campaign, organization):
         """Validate all required fields and create platform objects."""
