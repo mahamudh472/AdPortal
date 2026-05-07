@@ -1,9 +1,11 @@
 import requests, datetime, json, os
 import hashlib
+from io import BytesIO
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timezone as dt_timezone
 from dotenv import load_dotenv
+from PIL import Image
 load_dotenv()
 
 from main.models import Ad, AdAsset, PlatformAsset, PlatformCampaign
@@ -155,11 +157,31 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
     print(f"[DEBUG] Asset file exists: {os.path.exists(asset.file.path)}")
 
     signature = None
+    upload_filename = os.path.basename(asset.file.path)
+    upload_content_type = "application/octet-stream"
+    upload_file_bytes: bytes = b""
+
     if asset.file_type == "IMAGE":
+        with open(asset.file.path, "rb") as image_file:
+            raw_bytes = image_file.read()
+
+        # TikTok image upload is stricter about WEBP in some accounts.
+        # Convert WEBP to JPEG in memory so the multipart payload is accepted.
+        if asset.file.name.lower().endswith(".webp"):
+            converted = BytesIO()
+            with Image.open(BytesIO(raw_bytes)) as image:
+                rgb_image = image.convert("RGB")
+                rgb_image.save(converted, format="JPEG", quality=95)
+            upload_file_bytes = converted.getvalue()
+            upload_filename = os.path.splitext(upload_filename)[0] + ".jpg"
+            upload_content_type = "image/jpeg"
+            print(f"[DEBUG] Converted WEBP to JPEG for TikTok upload: {upload_filename}")
+        else:
+            upload_file_bytes = raw_bytes
+            upload_content_type = "image/" + os.path.splitext(upload_filename)[1].lstrip(".").lower()
+
         hasher = hashlib.md5()
-        with open(asset.file.path, "rb") as sig_file:
-            for chunk in iter(lambda: sig_file.read(1024 * 1024), b""):
-                hasher.update(chunk)
+        hasher.update(upload_file_bytes)
         signature = hasher.hexdigest()
         print(f"[DEBUG] Computed image signature: {signature}")
 
@@ -170,22 +192,30 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
 
     last_data = None
     for upload_field in upload_attempts:
-        with open(asset.file.path, "rb") as f:
-            files = {upload_field: (os.path.basename(asset.file.path), f)}
-            data_payload = {
-                "advertiser_id": integration.ad_account_id,
-                "upload_type": "UPLOAD_BY_FILE",
-            }
-            if signature:
-                data_payload["image_signature"] = signature
+        if asset.file_type == "IMAGE":
+            files = {upload_field: (upload_filename, BytesIO(upload_file_bytes), upload_content_type)}
+        else:
+            with open(asset.file.path, "rb") as f:
+                files = {upload_field: (os.path.basename(asset.file.path), f, "video/mp4")}
 
-            resp = requests.post(
-                endpoint,
-                headers=upload_headers,
-                data=data_payload,
-                files=files,
-                timeout=60,
-            )
+        print(f"[DEBUG] Multipart field name: {upload_field}")
+        print(f"[DEBUG] Multipart filename: {upload_filename if asset.file_type == 'IMAGE' else os.path.basename(asset.file.path)}")
+        print(f"[DEBUG] Multipart content type: {upload_content_type if asset.file_type == 'IMAGE' else 'video/mp4'}")
+
+        data_payload = {
+            "advertiser_id": integration.ad_account_id,
+            "upload_type": "UPLOAD_BY_FILE",
+        }
+        if signature:
+            data_payload["image_signature"] = signature
+
+        resp = requests.post(
+            endpoint,
+            headers=upload_headers,
+            data=data_payload,
+            files=files,
+            timeout=60,
+        )
 
         try:
             data = resp.json()
