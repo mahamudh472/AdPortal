@@ -3,6 +3,8 @@ Email utility functions for sending HTML emails using templates.
 """
 import os
 from datetime import datetime
+from django.template.loader import render_to_string
+from django.template import TemplateDoesNotExist
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
@@ -94,9 +96,18 @@ def send_html_email(subject, to_email, template_name, context, from_email=None):
     if 'year' not in context:
         context['year'] = datetime.now().year
     
-    # Load and render template
-    template_content = load_email_template(template_name)
-    html_content = render_template(template_content, context)
+    # Try Django template loader first (supports app and project templates)
+    # Normalize template name for loader: if caller passed 'templates/NAME', strip it.
+    loader_name = template_name
+    if isinstance(template_name, str) and template_name.startswith('templates/'):
+        loader_name = template_name.split('templates/', 1)[1]
+
+    try:
+        html_content = render_to_string(loader_name, context)
+    except TemplateDoesNotExist:
+        # Fallback to loading the file directly from BASE_DIR
+        template_content = load_email_template(template_name)
+        html_content = render_template(template_content, context)
     
     # Create plain text fallback from context (for email clients that don't support HTML)
     text_content = f"{subject}\n\n"
@@ -141,7 +152,7 @@ def send_otp_email(user_email, user_name, otp_code, expiry_minutes=10):
     return send_html_email(
         subject='Your One-Time Password (OTP) - AdPortal',
         to_email=user_email,
-        template_name='email_otp_verification.html',
+        template_name='templates/email_otp_verification.html',
         context=context
     )
 
@@ -168,7 +179,7 @@ def send_team_invitation_email(invitee_email, inviter_name, organization_name, i
     return send_html_email(
         subject=f'You\'ve been invited to {organization_name} on AdPortal',
         to_email=invitee_email,
-        template_name='email_team_invitation.html',
+        template_name='templates/email_team_invitation.html',
         context=context
     )
 
@@ -201,7 +212,7 @@ def send_welcome_email(user_email, user_name, dashboard_link=None, support_email
     return send_html_email(
         subject='Welcome to AdPortal! 🎉',
         to_email=user_email,
-        template_name='email_welcome.html',
+        template_name='templates/email_welcome.html',
         context=context
     )
 
@@ -232,6 +243,6 @@ def send_account_created_email(user_email, temp_password, organization_name, log
     return send_html_email(
         subject='Your Account Has Been Created - AdPortal',
         to_email=user_email,
-        template_name='email_account_created.html',
+        template_name='templates/email_account_created.html',
         context=context
     )
