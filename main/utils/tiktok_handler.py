@@ -393,6 +393,8 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
     }
 
     # Ad Group requires stricter validation than Meta
+    # Build schedule fields defensively: if end_time is missing, use start-only schedule
+    schedule_type = "SCHEDULE_START_END" if adgroup.end_time else "SCHEDULE_START_ONLY"
     payload = {
         "advertiser_id": advertiser_id,
         "campaign_id": campaign_id,
@@ -402,10 +404,11 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
         "location_ids": ['6252001'],
         "budget_mode": "BUDGET_MODE_DAY",
         "budget": 20.0,
-        "schedule_type": "SCHEDULE_START_END",
+        "schedule_type": schedule_type,
         "schedule_start_time": to_tiktok_datetime(adgroup.start_time),
-        "schedule_end_time": to_tiktok_datetime(adgroup.end_time),
     }
+    if adgroup.end_time:
+        payload["schedule_end_time"] = to_tiktok_datetime(adgroup.end_time)
     if not platform_campaign.unified_campaign:
         raise ValueError("Selected PlatformCampaign has no linked UnifiedCampaign")
 
