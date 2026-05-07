@@ -413,6 +413,10 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
     if not adgroup:
         raise ValueError("No local AdGroup found for selected PlatformCampaign")
 
+    if adgroup.platform_adgroup_id:
+        print(f"[DEBUG] Reusing existing TikTok adgroup id: {adgroup.platform_adgroup_id}")
+        return adgroup.platform_adgroup_id
+
     advertiser_id = ADVERTISER_ID or (integration.ad_account_id if integration else None)
     access_token = ACCESS_TOKEN or (integration.access_token if integration else None)
 
@@ -533,6 +537,19 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
             "code": data.get("code"),
             "message": data.get("message"),
         })
+        message = str(data.get('message', '')).lower()
+        duplicate_name_error = any(
+            token in message
+            for token in (
+                'already exists',
+                'already exist',
+                'duplicate',
+                'name exists',
+            )
+        )
+        if duplicate_name_error and adgroup.platform_adgroup_id:
+            print(f"[DEBUG] TikTok adgroup already exists; reusing saved id: {adgroup.platform_adgroup_id}")
+            return adgroup.platform_adgroup_id
         if data.get('code') != 40002:
             break
 
