@@ -334,29 +334,55 @@ def create_platform_campaign_for_tiktok(
         "Access-Token": ACCESS_TOKEN,
         "Content-Type": "application/json",
     }
-    
-    payload = {
-        "advertiser_id": ADVERTISER_ID,
-        "campaign_name": campaign.name if not force_recreate else f"{campaign.name} [test]",
-        "objective_type": _map_tiktok_campaign_objective(campaign.objective),
-        "budget_mode": "BUDGET_MODE_DAY" if campaign_budget.budget_type == 'DAILY' else "BUDGET_MODE_TOTAL",
-        "budget": campaign_budget.daily_budget_minor, # Minimum is usually 50 in Sandbox
-    }
-    
-    res = requests.post(url, headers=headers, json=payload, timeout=30)
-    data = res.json()
-    
-    if res.status_code >= 400 or data.get('code') != 0:
-        raise ValueError(
-            f"TikTok campaign create failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
-        )
-        
-    campaign_id = data['data']['campaign_id']
-    platform_campaign.platform_campaign_id = campaign_id
-    platform_campaign.save()
-    print(f"✅ Campaign Created: {campaign_id}")
 
-    return campaign_id
+    campaign_names = [campaign.name]
+    if force_recreate:
+        campaign_names = [
+            f"{campaign.name} [test]",
+            f"{campaign.name} [test] {timezone.now().strftime('%Y%m%d%H%M%S%f')}",
+        ]
+
+    last_data = None
+    for campaign_name in campaign_names:
+        payload = {
+            "advertiser_id": ADVERTISER_ID,
+            "campaign_name": campaign_name,
+            "objective_type": _map_tiktok_campaign_objective(campaign.objective),
+            "budget_mode": "BUDGET_MODE_DAY" if campaign_budget.budget_type == 'DAILY' else "BUDGET_MODE_TOTAL",
+            "budget": campaign_budget.daily_budget_minor, # Minimum is usually 50 in Sandbox
+        }
+
+        res = requests.post(url, headers=headers, json=payload, timeout=30)
+        data = res.json()
+        last_data = data
+
+        if res.status_code < 400 and data.get('code') == 0:
+            campaign_id = data['data']['campaign_id']
+            platform_campaign.platform_campaign_id = campaign_id
+            platform_campaign.save()
+            print(f"✅ Campaign Created: {campaign_id}")
+            return campaign_id
+
+        message = str(data.get('message', '')).lower()
+        duplicate_name_error = any(
+            token in message
+            for token in (
+                'already exists',
+                'already exist',
+                'duplicate',
+                'name exists',
+            )
+        )
+        if not (force_recreate and duplicate_name_error and campaign_name == campaign_names[0]):
+            raise ValueError(
+                f"TikTok campaign create failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
+            )
+
+        print("TikTok campaign name already exists. Retrying with a unique test name.")
+
+    raise ValueError(
+        f"TikTok campaign create failed [{(last_data or {}).get('code')}]: {(last_data or {}).get('message', 'Unknown error')}"
+    )
     
 
 def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADVERTISER_ID=None, ACCESS_TOKEN=None):
@@ -382,6 +408,15 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
 
     advertiser_id = ADVERTISER_ID or (integration.ad_account_id if integration else None)
     access_token = ACCESS_TOKEN or (integration.access_token if integration else None)
+
+    campaign_budget = platform_campaign.unified_campaign.campaignbudget_set.filter(platform='TIKTOK').first()
+    print(f"[DEBUG] Campaign Budget ID: {campaign_budget.id if campaign_budget else 'None'}")
+    print(f"[DEBUG] AdGroup start_time (raw): {adgroup.start_time}")
+    print(f"[DEBUG] AdGroup end_time (raw): {adgroup.end_time}")
+    print(f"[DEBUG] Campaign Budget start_date: {campaign_budget.start_date if campaign_budget else 'None'}")
+    print(f"[DEBUG] Campaign Budget end_date: {campaign_budget.end_date if campaign_budget else 'None'}")
+    print(f"[DEBUG] Current time (now): {timezone.now()}")
+
     if not advertiser_id:
         raise ValueError("TikTok advertiser_id (ad_account_id) is missing in integration")
     if not access_token:
@@ -392,11 +427,27 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
         "Content-Type": "application/json",
     }
 
-    # Ad Group requires stricter validation than Meta
-    # Build schedule fields defensively: TikTok accepts either a start+end schedule
-    # or a from-now schedule. Use SCHEDULE_START_END when we have both times,
-    # otherwise use SCHEDULE_FROM_NOW and omit explicit times.
-    if adgroup.end_time:
+    # Ad Group requires stricter validation than Meta.
+    # TikTok still expects schedule_start_time even for from-now schedules,
+    # so always send a start time and only include an end time when present.
+    # Use CampaignBudget dates if available, otherwise fall back to AdGroup times.
+    if campaign_budget:
+        schedule_start_date = campaign_budget.start_date
+        schedule_end_date = campaign_budget.end_date
+        schedule_start_time = to_tiktok_datetime(timezone.make_aware(timezone.datetime.combine(schedule_start_date, timezone.datetime.min.time())))
+        print(f"[DEBUG] Using CampaignBudget dates. schedule_start_time (TikTok format): {schedule_start_time}")
+        if schedule_end_date:
+            schedule_end_time = to_tiktok_datetime(timezone.make_aware(timezone.datetime.combine(schedule_end_date, timezone.datetime.min.time())))
+            print(f"[DEBUG] schedule_end_time (TikTok format): {schedule_end_time}")
+        else:
+            schedule_end_time = None
+            print(f"[DEBUG] No end date in CampaignBudget")
+    else:
+        schedule_start_time = to_tiktok_datetime(adgroup.start_time)
+        schedule_end_time = to_tiktok_datetime(adgroup.end_time) if adgroup.end_time else None
+        print(f"[DEBUG] No CampaignBudget found. Using AdGroup times. schedule_start_time (TikTok format): {schedule_start_time}")
+
+    if campaign_budget and campaign_budget.end_date:
         schedule_type = "SCHEDULE_START_END"
         payload = {
             "advertiser_id": advertiser_id,
@@ -408,8 +459,8 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
             "budget_mode": "BUDGET_MODE_DAY",
             "budget": 20.0,
             "schedule_type": schedule_type,
-            "schedule_start_time": to_tiktok_datetime(adgroup.start_time),
-            "schedule_end_time": to_tiktok_datetime(adgroup.end_time),
+            "schedule_start_time": schedule_start_time,
+            "schedule_end_time": schedule_end_time,
         }
     else:
         schedule_type = "SCHEDULE_FROM_NOW"
@@ -423,6 +474,7 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
             "budget_mode": "BUDGET_MODE_DAY",
             "budget": 20.0,
             "schedule_type": schedule_type,
+            "schedule_start_time": schedule_start_time,
         }
     if not platform_campaign.unified_campaign:
         raise ValueError("Selected PlatformCampaign has no linked UnifiedCampaign")

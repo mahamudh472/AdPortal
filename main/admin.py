@@ -27,13 +27,32 @@ class CampaignAdmin(admin.ModelAdmin):
     search_fields = ('name', 'platform_campaign_id')
     list_filter = ('objective', 'status')
 
-admin.site.register(PlatformCampaign)
-admin.site.register(AdGroup)
-admin.site.register(Ad)
-admin.site.register(AdAsset)
-admin.site.register(IntegrationSyncState)
-admin.site.register(CampaignBudget)
+@admin.register(PlatformCampaign)
+class PlatformCampaignAdmin(admin.ModelAdmin):
+    pass
 
+@admin.register(AdGroup)
+class AdGroupAdmin(admin.ModelAdmin):
+    pass
+
+@admin.register(Ad)
+class AdAdmin(admin.ModelAdmin):
+    pass
+
+@admin.register(AdAsset)
+class AdAssetAdmin(admin.ModelAdmin):
+    pass
+
+@admin.register(IntegrationSyncState)
+class IntegrationSyncStateAdmin(admin.ModelAdmin):
+    pass
+
+@admin.register(CampaignBudget)
+class CampaignBudgetAdmin(admin.ModelAdmin):
+    list_display = ('campaign', 'platform', 'budget_type', 'daily_budget_minor', 'start_date', 'end_date', 'run_continuously')
+    search_fields = ('campaign__name',)
+    list_filter = ('platform', 'budget_type', 'run_continuously')
+    
 # @admin.register(AdGroup)
 # class AdGroupAdmin(admin.ModelAdmin):
 #     list_display = ('name', 'campaign', 'platform_adgroup_id')
