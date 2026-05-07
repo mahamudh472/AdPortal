@@ -70,7 +70,7 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
         # at the DB level so only one proceeds at a time.
         with transaction.atomic():
             active_sub = (
-                Subscription.objects.select_for_update()
+                Subscription.objects.select_for_update(of=('self',))
                 .filter(organization=organization, status="active")
                 .select_related("plan", "pending_plan")
                 .first()
