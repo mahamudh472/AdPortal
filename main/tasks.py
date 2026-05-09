@@ -2,13 +2,158 @@ from celery import shared_task
 from main.utils.meta_engine.sync_ad import sync_meta_integration
 from main.utils.tiktok_engine.sync_ad import sync_tiktok_integration
 from main.utils.google_engine.sync_ad import sync_google_integration
-from main.models import AdIntegration
+from main.models import (
+    AdIntegration,
+    PlatformSyncOperation,
+    PlatformSyncStatus,
+)
+from main.utils.sync_events import (
+    create_platform_sync_event,
+    mark_platform_sync_event_failed,
+    mark_platform_sync_event_in_progress,
+    mark_platform_sync_event_success,
+)
 import logging
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Sum, Avg
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(bind=True, max_retries=3)
+def sync_campaign_to_platforms_task(self, campaign_id: int, operation: str):
+    """
+    Background task that pushes a campaign create/update operation
+    to all connected platforms for that campaign.
+    """
+    from main.models import UnifiedCampaign
+    from main.utils.meta_engine.manage_ad import create_ad_on_meta, update_campaign_on_meta
+    from main.utils.google_engine.manage_ad import create_ad_on_google, update_campaign_on_google
+    from main.utils.tiktok_handler import create_full_ad_for_tiktok
+
+    if operation not in (PlatformSyncOperation.CREATE, PlatformSyncOperation.UPDATE):
+        raise ValueError(f"Unsupported campaign sync operation: {operation}")
+
+    campaign = UnifiedCampaign.objects.select_related("organization").filter(id=campaign_id).first()
+    if not campaign:
+        logger.warning("sync_campaign_to_platforms_task: campaign %s not found", campaign_id)
+        return
+
+    integrations = AdIntegration.objects.filter(
+        organization=campaign.organization,
+        is_active=True,
+    ).order_by("platform", "-created_at", "-id")
+
+    handled_platforms: set[str] = set()
+    for integration in integrations:
+        platform = integration.platform
+        if platform in handled_platforms:
+            continue
+        handled_platforms.add(platform)
+
+        event = create_platform_sync_event(
+            campaign=campaign,
+            integration=integration,
+            platform=platform,
+            operation=operation,
+            status=PlatformSyncStatus.QUEUED,
+            message=f"{operation} scheduled for {platform}",
+            payload={"campaign_id": campaign.id},
+        )
+        mark_platform_sync_event_in_progress(
+            event,
+            message=f"{operation} in progress for {platform}",
+        )
+
+        try:
+            if platform == "META":
+                if operation == PlatformSyncOperation.CREATE:
+                    ad = create_ad_on_meta(campaign.id)
+                    mark_platform_sync_event_success(
+                        event,
+                        message="Meta campaign create completed",
+                        payload={
+                            "campaign_id": campaign.id,
+                            "ad_id": getattr(ad, "id", None),
+                            "platform_ad_id": getattr(ad, "platform_ad_id", None),
+                        },
+                    )
+                else:
+                    result = update_campaign_on_meta(campaign.id)
+                    mark_platform_sync_event_success(
+                        event,
+                        message="Meta campaign update completed",
+                        payload={
+                            "campaign_id": campaign.id,
+                            "ad_id": getattr(result, "id", None) if result else None,
+                            "platform_ad_id": getattr(result, "platform_ad_id", None) if result else None,
+                        },
+                    )
+
+            elif platform == "GOOGLE":
+                if operation == PlatformSyncOperation.CREATE:
+                    ad = create_ad_on_google(campaign.id)
+                    mark_platform_sync_event_success(
+                        event,
+                        message="Google campaign create completed",
+                        payload={
+                            "campaign_id": campaign.id,
+                            "ad_id": getattr(ad, "id", None),
+                            "platform_ad_id": getattr(ad, "platform_ad_id", None),
+                        },
+                    )
+                else:
+                    result = update_campaign_on_google(campaign.id)
+                    mark_platform_sync_event_success(
+                        event,
+                        message="Google campaign update completed",
+                        payload={
+                            "campaign_id": campaign.id,
+                            "ad_id": getattr(result, "id", None) if result else None,
+                            "platform_ad_id": getattr(result, "platform_ad_id", None) if result else None,
+                        },
+                    )
+
+            elif platform == "TIKTOK":
+                from main.models import PlatformCampaign
+
+                existing_tiktok_campaign = PlatformCampaign.objects.filter(
+                    unified_campaign=campaign,
+                    integration=integration,
+                    platform_campaign_id__isnull=False,
+                ).exists()
+                result = create_full_ad_for_tiktok(
+                    campaign,
+                    integration,
+                    force_recreate_campaign=(operation == PlatformSyncOperation.CREATE or not existing_tiktok_campaign),
+                    update_existing_campaign=(operation == PlatformSyncOperation.UPDATE and existing_tiktok_campaign),
+                )
+                mark_platform_sync_event_success(
+                    event,
+                    message=f"TikTok campaign {operation.lower()} completed",
+                    payload={"campaign_id": campaign.id, **(result or {})},
+                )
+            else:
+                mark_platform_sync_event_failed(
+                    event,
+                    error_message=f"Unsupported platform: {platform}",
+                    message="Operation skipped",
+                )
+        except Exception as exc:
+            logger.error(
+                "sync_campaign_to_platforms_task: platform=%s campaign=%s operation=%s error=%s",
+                platform,
+                campaign.id,
+                operation,
+                exc,
+            )
+            mark_platform_sync_event_failed(
+                event,
+                error_message=str(exc),
+                message=f"{operation} failed for {platform}",
+                payload={"campaign_id": campaign.id},
+            )
 
 
 @shared_task(bind=True, max_retries=3)
@@ -24,12 +169,17 @@ def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: s
     from main.utils.meta_engine.manage_ad import toggle_campaign_status_on_meta
     from main.utils.tiktok_engine.manage_ad import toggle_campaign_status_on_tiktok
     from main.utils.google_engine.manage_ad import toggle_campaign_status_on_google
-    from main.models import PlatformCampaign
+    from main.models import PlatformCampaign, UnifiedCampaign
 
     logger.info(
         "toggle_campaign_status_task: campaign=%s target=%s",
         unified_campaign_id, target_status,
     )
+
+    campaign = UnifiedCampaign.objects.filter(id=unified_campaign_id).first()
+    if not campaign:
+        logger.warning("toggle_campaign_status_task: campaign %s not found", unified_campaign_id)
+        return
 
     all_errors: list[dict] = []
 
@@ -41,6 +191,26 @@ def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: s
     )
 
     for platform in platforms:
+        integration = AdIntegration.objects.filter(
+            organization=campaign.organization,
+            platform=platform,
+            is_active=True,
+        ).order_by("-created_at", "-id").first()
+
+        event = create_platform_sync_event(
+            campaign=campaign,
+            integration=integration,
+            platform=platform,
+            operation=PlatformSyncOperation.TOGGLE_STATUS,
+            message=f"Status toggle requested: {target_status}",
+            payload={"target_status": target_status},
+        )
+        mark_platform_sync_event_in_progress(
+            event,
+            message=f"Applying status={target_status} on {platform}",
+            payload={"target_status": target_status},
+        )
+
         try:
             if platform == "META":
                 errs = toggle_campaign_status_on_meta(unified_campaign_id, target_status)
@@ -50,14 +220,39 @@ def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: s
                 errs = toggle_campaign_status_on_google(unified_campaign_id, target_status)
             else:
                 logger.info("toggle_campaign_status_task: skipping unsupported platform %s", platform)
+                mark_platform_sync_event_failed(
+                    event,
+                    error_message=f"Unsupported platform: {platform}",
+                    message="Toggle skipped",
+                    payload={"target_status": target_status},
+                )
                 continue
             all_errors.extend(errs)
+            if errs:
+                mark_platform_sync_event_failed(
+                    event,
+                    error_message="; ".join([e.get("error", "Unknown error") for e in errs]),
+                    message=f"Toggle partially failed on {platform}",
+                    payload={"target_status": target_status, "errors": errs},
+                )
+            else:
+                mark_platform_sync_event_success(
+                    event,
+                    message=f"Status set to {target_status} on {platform}",
+                    payload={"target_status": target_status},
+                )
         except Exception as exc:
             logger.error(
                 "toggle_campaign_status_task: platform=%s campaign=%s error=%s",
                 platform, unified_campaign_id, exc,
             )
             all_errors.append({"platform": platform, "error": str(exc)})
+            mark_platform_sync_event_failed(
+                event,
+                error_message=str(exc),
+                message=f"Toggle failed on {platform}",
+                payload={"target_status": target_status},
+            )
             self.retry(exc=exc, countdown=60)
 
     if all_errors:
@@ -79,6 +274,32 @@ def sync_ads_task(self, platform_integration_id):
         logger.warning("Integration %s does not exist, skipping.", platform_integration_id)
         return
     logger.info("Syncing platform=%s, account=%s", platform_integration.platform, platform_integration.ad_account_id)
+
+    campaign_ids = list(
+        platform_integration.platform_campaigns.values_list("unified_campaign_id", flat=True).distinct()
+    )
+    events = []
+    for campaign_id in campaign_ids:
+        campaign_obj = None
+        if campaign_id:
+            from main.models import UnifiedCampaign
+
+            campaign_obj = UnifiedCampaign.objects.filter(id=campaign_id).first()
+        if campaign_obj:
+            event = create_platform_sync_event(
+                campaign=campaign_obj,
+                integration=platform_integration,
+                platform=platform_integration.platform,
+                operation=PlatformSyncOperation.SYNC_ADS,
+                message="Ads sync queued",
+                payload={"integration_id": platform_integration.id},
+            )
+            mark_platform_sync_event_in_progress(
+                event,
+                message="Ads sync in progress",
+                payload={"integration_id": platform_integration.id},
+            )
+            events.append(event)
     try:
         if platform_integration.platform.upper() == 'META':
             from main.utils.meta_engine.sync_ad import MetaSyncConfigError
@@ -106,9 +327,29 @@ def sync_ads_task(self, platform_integration_id):
             logger.info("Google sync completed for integration %s", platform_integration_id)
         else:
             logger.warning("Unsupported platform: %s — skipping", platform_integration.platform)
+            for event in events:
+                mark_platform_sync_event_failed(
+                    event,
+                    error_message=f"Unsupported platform: {platform_integration.platform}",
+                    message="Ads sync skipped",
+                    payload={"integration_id": platform_integration.id},
+                )
             return
+        for event in events:
+            mark_platform_sync_event_success(
+                event,
+                message="Ads sync completed",
+                payload={"integration_id": platform_integration.id},
+            )
     except Exception as exc:
         logger.error("sync_ads_task failed for integration %s: %s", platform_integration_id, exc)
+        for event in events:
+            mark_platform_sync_event_failed(
+                event,
+                error_message=str(exc),
+                message="Ads sync failed",
+                payload={"integration_id": platform_integration.id},
+            )
         from accounts.notifications import notify_admins
         notify_admins(
             f"Platform sync failed for {platform_integration.platform} integration "
@@ -130,6 +371,31 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
 
     sd = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
     ed = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+
+    campaign_ids = list(
+        integration.platform_campaigns.values_list("unified_campaign_id", flat=True).distinct()
+    )
+    events = []
+    for campaign_id in campaign_ids:
+        from main.models import UnifiedCampaign
+
+        campaign = UnifiedCampaign.objects.filter(id=campaign_id).first()
+        if not campaign:
+            continue
+        event = create_platform_sync_event(
+            campaign=campaign,
+            integration=integration,
+            platform=integration.platform,
+            operation=PlatformSyncOperation.SYNC_ANALYTICS,
+            message="Analytics sync queued",
+            payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+        )
+        mark_platform_sync_event_in_progress(
+            event,
+            message="Analytics sync in progress",
+            payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+        )
+        events.append(event)
 
     try:
         if integration.platform.upper() == 'META':
@@ -155,10 +421,31 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
 
         else:
             logger.warning("sync_analytics_task: unsupported platform %s — skipping", integration.platform)
+            for event in events:
+                mark_platform_sync_event_failed(
+                    event,
+                    error_message=f"Unsupported platform: {integration.platform}",
+                    message="Analytics sync skipped",
+                    payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+                )
             return
+
+        for event in events:
+            mark_platform_sync_event_success(
+                event,
+                message="Analytics sync completed",
+                payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+            )
 
     except Exception as exc:
         logger.error("sync_analytics_task failed for integration %s: %s", platform_integration_id, exc)
+        for event in events:
+            mark_platform_sync_event_failed(
+                event,
+                error_message=str(exc),
+                message="Analytics sync failed",
+                payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+            )
         self.retry(exc=exc, countdown=60)
 
 

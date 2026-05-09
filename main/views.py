@@ -27,7 +27,7 @@ from rest_framework.views import APIView
 from accounts.email_utils import send_team_invitation_email, send_account_created_email
 import random
 from main.utils.helper import get_dashboard_data, get_analytics_data
-from main.tasks import sync_ads_task
+from main.tasks import sync_ads_task, sync_campaign_to_platforms_task
 
 
 
@@ -353,6 +353,8 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         if not campaign:
             raise ValidationError({'campaign_id': 'Campaign not found'})
 
+        should_sync_platforms = campaign.status != 'DRAFT'
+
         # Update campaign-level fields
         if 'campaign_name' in data:
             campaign.name = data.pop('campaign_name')
@@ -384,6 +386,9 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         
         # Create platform campaigns for any new platforms being added
         self._create_missing_platform_campaigns(campaign, data, ad_file)
+
+        if should_sync_platforms:
+            sync_campaign_to_platforms_task.delay(campaign.id, 'UPDATE')
         
         return campaign
 
@@ -547,6 +552,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         campaign.draft_data = {}
         campaign.save()
         increment_campaign_usage(organization)
+        sync_campaign_to_platforms_task.delay(campaign.id, 'CREATE')
 
         # Notify org owner/admins that the campaign is now live
         from accounts.notifications import notify_org_members
@@ -1181,6 +1187,7 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
         platform = str(request.data.get('platform', '')).upper()
         campaign_id = request.data.get('campaign_id')
         ad_asset_id = request.data.get('ad_asset_id')
+        update_campaign = str(request.data.get('update_campaign', '')).lower() in ('1', 'true', 'yes', 'on')
 
         if platform not in ('META', 'TIKTOK', 'GOOGLE'):
             return Response(
@@ -1288,24 +1295,35 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
                 )
 
             force_recreate_campaign = not bool(platform_campaign.platform_campaign_id)
-            if platform_campaign.platform_campaign_id:
+            if platform_campaign.platform_campaign_id and not update_campaign:
                 print(
                     f"[DEBUG] Reusing existing TikTok campaign id: {platform_campaign.platform_campaign_id}"
                 )
-            else:
+            elif not platform_campaign.platform_campaign_id:
                 print("[DEBUG] No existing TikTok campaign id found; creating a new one.")
+            else:
+                print(
+                    f"[DEBUG] Updating existing TikTok campaign id: {platform_campaign.platform_campaign_id}"
+                )
 
             result = create_full_ad_for_tiktok(
                 campaign,
                 integration,
                 force_recreate_campaign=force_recreate_campaign,
+                update_existing_campaign=update_campaign,
                 ad_asset=ad_asset,
             )
             platform_campaign.refresh_from_db()
             first_adgroup = platform_campaign.ad_groups.first()
 
+            is_update = bool(update_campaign and platform_campaign.platform_campaign_id)
+
             return Response({
-                'message': 'TikTok campaign/adgroup creation triggered successfully.',
+                'message': (
+                    'TikTok campaign/adgroup update triggered successfully.'
+                    if is_update
+                    else 'TikTok campaign/adgroup creation triggered successfully.'
+                ),
                 'platform': 'TIKTOK',
                 'campaign_id': campaign.id,
                 'platform_campaign_id': (result or {}).get('campaign_id') or platform_campaign.platform_campaign_id,

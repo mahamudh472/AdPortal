@@ -979,6 +979,15 @@ def create_ad_on_meta(
     destination_url = draft.get("destination_url", "") if not local_ad else (local_ad.destination_url or "")
     cta = draft.get("call_to_action", "LEARN_MORE") if not local_ad else (local_ad.call_to_action or "LEARN_MORE")
 
+    # Validate required fields for creative
+    if not destination_url or not destination_url.strip():
+        raise MetaAdCreationError(
+            "CREATIVE",
+            "destination_url is required but missing or empty. Please provide a valid URL in the campaign draft data.",
+            platform_campaign=platform_campaign,
+            ad_group=ad_group,
+        )
+
     link_data = {
         "link": destination_url,
         "message": primary_text,
@@ -1202,14 +1211,18 @@ def _create_or_update_creative(
 ) -> str | None:
     """Create a new Meta AdCreative from the local Ad's fields. Returns creative ID."""
 
+    # Validate required fields
+    if not local_ad.destination_url or not local_ad.destination_url.strip():
+        raise ValueError("destination_url is required but missing or empty. Please provide a valid URL for the ad.")
+
     link_data = {
-        "link": local_ad.destination_url or "",
+        "link": local_ad.destination_url,
         "message": local_ad.primary_text or "",
         "name": local_ad.headline or "",
         "description": local_ad.description or "",
         "call_to_action": {
             "type": _normalize_cta(local_ad.call_to_action or "LEARN_MORE"),
-            "value": {"link": local_ad.destination_url or ""},
+            "value": {"link": local_ad.destination_url},
         },
     }
 

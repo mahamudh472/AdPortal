@@ -420,6 +420,58 @@ def create_platform_campaign_for_tiktok(
     raise ValueError(
         f"TikTok campaign create failed [{(last_data or {}).get('code')}]: {(last_data or {}).get('message', 'Unknown error')}"
     )
+
+
+def update_platform_campaign_for_tiktok(
+    campaign,
+    integration,
+    ADVERTISER_ID,
+    ACCESS_TOKEN,
+):
+    platform_campaign = _select_platform_campaign(campaign, integration)
+    campaign_budget = campaign.campaignbudget_set.filter(platform='TIKTOK').first()
+    if not campaign_budget:
+        raise ValueError("TikTok budget is missing for this campaign")
+
+    if not platform_campaign.platform_campaign_id:
+        return create_platform_campaign_for_tiktok(
+            campaign,
+            integration,
+            ADVERTISER_ID,
+            ACCESS_TOKEN,
+            force_recreate=False,
+        )
+
+    if not ADVERTISER_ID:
+        raise ValueError("TikTok advertiser_id (ad_account_id) is missing in integration")
+    if not ACCESS_TOKEN:
+        raise ValueError("TikTok access_token is missing in integration")
+
+    url = f"{BASE_URL}/campaign/update/"
+    headers = {
+        "Access-Token": ACCESS_TOKEN,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "advertiser_id": ADVERTISER_ID,
+        "campaign_id": platform_campaign.platform_campaign_id,
+        "campaign_name": campaign.name,
+        "objective_type": _map_tiktok_campaign_objective(campaign.objective),
+        "budget_mode": "BUDGET_MODE_DAY" if campaign_budget.budget_type == 'DAILY' else "BUDGET_MODE_TOTAL",
+        "budget": campaign_budget.daily_budget_minor,
+    }
+
+    res = requests.post(url, headers=headers, json=payload, timeout=30)
+    data = res.json()
+    if res.status_code < 400 and data.get('code') == 0:
+        platform_campaign.last_synced_at = timezone.now()
+        platform_campaign.save()
+        print(f"✅ Campaign Updated: {platform_campaign.platform_campaign_id}")
+        return platform_campaign.platform_campaign_id
+
+    raise ValueError(
+        f"TikTok campaign update failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
+    )
     
 
 def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADVERTISER_ID=None, ACCESS_TOKEN=None):
@@ -653,17 +705,26 @@ def create_full_ad_for_tiktok(
     campaign,
     integration,
     force_recreate_campaign=False,
+    update_existing_campaign=False,
     ad_asset: AdAsset | None = None,
 ):
 
-    # TODO: Need to change to the actual values from campaign and integration
-    campaign_id = create_platform_campaign_for_tiktok(
-        campaign,
-        integration,
-        integration.ad_account_id,
-        integration.access_token,
-        force_recreate=force_recreate_campaign,
-    )
+    if update_existing_campaign:
+        campaign_id = update_platform_campaign_for_tiktok(
+            campaign,
+            integration,
+            integration.ad_account_id,
+            integration.access_token,
+        )
+    else:
+        # TODO: Need to change to the actual values from campaign and integration
+        campaign_id = create_platform_campaign_for_tiktok(
+            campaign,
+            integration,
+            integration.ad_account_id,
+            integration.access_token,
+            force_recreate=force_recreate_campaign,
+        )
     if not campaign_id:
         raise ValueError("TikTok campaign creation did not return campaign_id")
     adgroup_id = create_ad_group_for_tiktok(

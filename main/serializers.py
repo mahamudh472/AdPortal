@@ -1,5 +1,16 @@
 from accounts.serializers import SimpleUserSerializer
-from main.models import BudgetType, Organization, OrganizationMember, UnifiedCampaign, UnifiedObjective, AdIntegration, AIInsight, Ad, AdAsset
+from main.models import (
+    BudgetType,
+    Organization,
+    OrganizationMember,
+    UnifiedCampaign,
+    UnifiedObjective,
+    AdIntegration,
+    AIInsight,
+    Ad,
+    AdAsset,
+    PlatformSyncEvent,
+)
 from rest_framework import serializers
 from django.db import models
 import json
@@ -99,13 +110,15 @@ class CampaignSerializer(serializers.ModelSerializer):
     remaining_budget = serializers.SerializerMethodField()
     budgets = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    platform_sync_statuses = serializers.SerializerMethodField()
 
     class Meta:
         model = UnifiedCampaign
         fields = [
             'id', 'name', 'objective', 'platforms', 'matrics', 'ads', 
             'audience_targeting', 'status', 'created_at', 'ai_insights', 
-            'total_budget', 'total_spent', 'remaining_budget', 'budgets', 'file_url'
+            'total_budget', 'total_spent', 'remaining_budget', 'budgets', 'file_url',
+            'platform_sync_statuses'
         ]
 
     def get_platforms(self, obj):
@@ -232,6 +245,21 @@ class CampaignSerializer(serializers.ModelSerializer):
         if not asset or not asset.file:
             return None
         return build_url(asset.file)
+
+    def get_platform_sync_statuses(self, obj):
+        latest_by_platform = {}
+        events = PlatformSyncEvent.objects.filter(campaign=obj).order_by('-created_at')
+        for event in events:
+            if event.platform in latest_by_platform:
+                continue
+            latest_by_platform[event.platform] = {
+                'operation': event.operation,
+                'status': event.status,
+                'message': event.message,
+                'error_message': event.error_message,
+                'updated_at': event.updated_at,
+            }
+        return latest_by_platform
 
 class BudgetItemSerializer(serializers.Serializer):
     platform=serializers.CharField()

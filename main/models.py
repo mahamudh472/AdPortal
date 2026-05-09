@@ -446,3 +446,67 @@ class IntegrationSyncState(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+
+class PlatformSyncOperation(models.TextChoices):
+    CREATE = 'CREATE', 'Create'
+    UPDATE = 'UPDATE', 'Update'
+    TOGGLE_STATUS = 'TOGGLE_STATUS', 'Toggle Status'
+    SYNC_ADS = 'SYNC_ADS', 'Sync Ads'
+    SYNC_ANALYTICS = 'SYNC_ANALYTICS', 'Sync Analytics'
+    DELETE = 'DELETE', 'Delete'
+
+
+class PlatformSyncStatus(models.TextChoices):
+    QUEUED = 'QUEUED', 'Queued'
+    IN_PROGRESS = 'IN_PROGRESS', 'In Progress'
+    SUCCESS = 'SUCCESS', 'Success'
+    FAILED = 'FAILED', 'Failed'
+
+
+class PlatformSyncEvent(models.Model):
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='platform_sync_events',
+    )
+    campaign = models.ForeignKey(
+        UnifiedCampaign,
+        on_delete=models.CASCADE,
+        related_name='platform_sync_events',
+    )
+    integration = models.ForeignKey(
+        AdIntegration,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='platform_sync_events',
+    )
+
+    platform = models.CharField(max_length=20, choices=Platform.choices)
+    operation = models.CharField(max_length=30, choices=PlatformSyncOperation.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=PlatformSyncStatus.choices,
+        default=PlatformSyncStatus.QUEUED,
+    )
+
+    message = models.TextField(blank=True, default='')
+    error_message = models.TextField(null=True, blank=True)
+    payload = models.JSONField(default=dict, blank=True)
+
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['campaign', 'platform', '-created_at']),
+            models.Index(fields=['organization', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.campaign_id}:{self.platform}:{self.operation}:{self.status}"
+
