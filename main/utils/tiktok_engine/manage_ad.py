@@ -133,3 +133,40 @@ def toggle_campaign_status_on_tiktok(unified_campaign_id: int, target_status: st
                         errors.append({"stage": "AD", "id": ad.platform_ad_id, "error": str(exc)})
 
     return errors
+
+
+# ============================================================
+# DELETE CAMPAIGN BY PLATFORM CAMPAIGN (used by Celery delete task)
+# ============================================================
+
+def delete_campaign_on_tiktok(platform_campaign_id: str, integration) -> list[dict]:
+    """
+    Archive/delete a TikTok campaign by its platform-level ID.
+
+    TikTok does not expose a hard-delete endpoint for campaigns; the
+    closest equivalent is setting the campaign status to DELETE via
+    the campaign/update endpoint.
+
+    Called by the background delete task *after* the local UnifiedCampaign
+    row has been removed from the DB.
+
+    Returns a list of error dicts (empty = success).
+    """
+    advertiser_id = integration.ad_account_id
+    token = integration.access_token
+    errors: list[dict] = []
+    try:
+        _tiktok_post(
+            "campaign/status/update/",
+            token,
+            {
+                "advertiser_id": advertiser_id,
+                "campaign_ids": [platform_campaign_id],
+                "operation_status": "DELETE",
+            },
+        )
+        logger.info("TikTok Campaign archived/deleted (by task): %s", platform_campaign_id)
+    except Exception as exc:
+        logger.error("Failed to delete TikTok Campaign %s: %s", platform_campaign_id, exc)
+        errors.append({"stage": "CAMPAIGN", "id": platform_campaign_id, "error": str(exc)})
+    return errors

@@ -157,6 +157,66 @@ def sync_campaign_to_platforms_task(self, campaign_id: int, operation: str):
 
 
 @shared_task(bind=True, max_retries=3)
+def delete_campaign_from_platforms_task(self, platform_campaign_ids: list):
+    """
+    Background task that deletes / archives a campaign on every connected
+    platform after the local UnifiedCampaign has already been removed from DB.
+
+    Args:
+        platform_campaign_ids: List of PlatformCampaign PKs whose
+            platform_campaign_id and integration details we still need to
+            act on.  These rows are fetched by PK so the task can be
+            re-tried safely even if the unified campaign is gone.
+    """
+    from main.models import PlatformCampaign
+
+    logger.info(
+        "delete_campaign_from_platforms_task: handling %d platform campaign(s)",
+        len(platform_campaign_ids),
+    )
+
+    for pc_id in platform_campaign_ids:
+        pc = PlatformCampaign.objects.select_related("integration").filter(id=pc_id).first()
+        if not pc:
+            logger.warning("delete_campaign_from_platforms_task: PlatformCampaign %s not found", pc_id)
+            continue
+
+        platform = pc.integration.platform
+        platform_campaign_id = pc.platform_campaign_id
+
+        try:
+            if platform == "META":
+                from main.utils.meta_engine.manage_ad import delete_campaign_on_meta
+                delete_campaign_on_meta(platform_campaign_id, pc.integration)
+
+            elif platform == "GOOGLE":
+                from main.utils.google_engine.manage_ad import delete_campaign_on_google
+                delete_campaign_on_google(platform_campaign_id, pc.integration)
+
+            elif platform == "TIKTOK":
+                from main.utils.tiktok_engine.manage_ad import delete_campaign_on_tiktok
+                delete_campaign_on_tiktok(platform_campaign_id, pc.integration)
+
+            else:
+                logger.warning(
+                    "delete_campaign_from_platforms_task: unsupported platform %s — skipping", platform
+                )
+                continue
+
+            logger.info(
+                "delete_campaign_from_platforms_task: deleted campaign %s on %s",
+                platform_campaign_id, platform,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "delete_campaign_from_platforms_task: failed to delete campaign %s on %s: %s",
+                platform_campaign_id, platform, exc,
+            )
+            self.retry(exc=exc, countdown=60)
+
+
+@shared_task(bind=True, max_retries=3)
 def toggle_campaign_status_task(self, unified_campaign_id: int, target_status: str):
     """
     Background task that propagates a PAUSE / ACTIVE toggle to every

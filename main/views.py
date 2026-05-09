@@ -163,6 +163,15 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
             'ai_insights',
         )
         return queryset
+
+    def perform_update(self, serializer):
+        """Save the campaign and, if it is already live, enqueue a sync task."""
+        instance = serializer.save()
+        # Only push to platforms when the campaign is already published
+        if instance.status not in ('DRAFT',):
+            transaction.on_commit(
+                lambda: sync_campaign_to_platforms_task.delay(instance.id, 'UPDATE')
+            )
     
     def perform_destroy(self, instance):
         # Change permission to allow only owner or admin to delete campaign
@@ -170,7 +179,24 @@ class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics
             raise PermissionDenied("You do not have permission to delete this campaign.")
         organization = instance.organization
         campaign_name = instance.name
+
+        # Collect platform-level IDs *before* the DB row is deleted so the
+        # background task can remove the ads from the real platforms.
+        platform_campaign_ids = list(
+            instance.platform_campaigns
+            .filter(platform_campaign_id__isnull=False)
+            .values_list('id', flat=True)
+        )
+
         instance.delete()
+
+        # Fire-and-forget: delete the ads from each platform in the background
+        if platform_campaign_ids:
+            from main.tasks import delete_campaign_from_platforms_task
+            transaction.on_commit(
+                lambda: delete_campaign_from_platforms_task.delay(platform_campaign_ids)
+            )
+
         from accounts.notifications import notify_org_members
         notify_org_members(
             organization,

@@ -1051,3 +1051,33 @@ def _google_post(access_token: str, url: str, payload: dict) -> dict:  # noqa: F
             f"Google Ads API partial failure: {data['partialFailureError']}"
         )
     return data
+
+
+# ────────────────────────────────────────────────────────────
+# DELETE CAMPAIGN BY PLATFORM CAMPAIGN (used by Celery delete task)
+# ────────────────────────────────────────────────────────────
+
+def delete_campaign_on_google(platform_campaign_id: str, integration) -> list[dict]:
+    """
+    Remove a Google Campaign by its platform-level resource ID.
+
+    Called by the background delete task *after* the local UnifiedCampaign
+    row has already been removed from the DB.
+
+    Returns a list of error dicts (empty = success).
+    """
+    cid = _customer_id(integration)
+    token = _get_valid_token(integration)
+    errors: list[dict] = []
+    try:
+        url = f"{GOOGLE_ADS_BASE_URL}/customers/{cid}/campaigns:mutate"
+        _google_post(token, url, {
+            "operations": [{
+                "remove": f"customers/{cid}/campaigns/{platform_campaign_id}",
+            }]
+        })
+        logger.info("Google Campaign removed (by task): %s", platform_campaign_id)
+    except Exception as exc:
+        logger.error("Failed to remove Google Campaign %s: %s", platform_campaign_id, exc)
+        errors.append({"stage": "CAMPAIGN", "id": platform_campaign_id, "error": str(exc)})
+    return errors

@@ -1457,3 +1457,30 @@ def toggle_campaign_status_on_meta(unified_campaign_id: int, target_status: str)
                         errors.append({"stage": "AD", "id": ad.platform_ad_id, "error": str(exc)})
 
     return errors
+
+
+# ────────────────────────────────────────────────────────────
+# DELETE CAMPAIGN BY PLATFORM CAMPAIGN (used by Celery delete task)
+# ────────────────────────────────────────────────────────────
+
+def delete_campaign_on_meta(platform_campaign_id: str, integration) -> list[dict]:
+    """
+    Delete a single Meta campaign by its platform-level ID.
+
+    Called by the background delete task *after* the local UnifiedCampaign
+    row has already been removed from the DB, so we cannot look up through
+    the unified campaign.  Only the platform_campaign_id and integration are
+    needed.
+
+    Returns a list of error dicts (empty = success).
+    """
+    _init_meta(integration)
+    errors: list[dict] = []
+    try:
+        meta_campaign = MetaCampaign(platform_campaign_id)
+        meta_campaign.api_delete()
+        logger.info("Meta Campaign deleted (by task): %s", platform_campaign_id)
+    except Exception as exc:
+        logger.error("Failed to delete Meta Campaign %s: %s", platform_campaign_id, exc)
+        errors.append({"stage": "CAMPAIGN", "id": platform_campaign_id, "error": str(exc)})
+    return errors
