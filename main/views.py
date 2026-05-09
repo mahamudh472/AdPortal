@@ -385,7 +385,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         if 'campaign_name' in data:
             campaign.name = data.pop('campaign_name')
         if 'objective' in data:
-            campaign.objective = data.pop('objective')
+            new_objective = data.pop('objective')
+            if campaign.status != 'DRAFT' and campaign.objective != new_objective:
+                raise ValidationError({'objective': 'Objective cannot be changed once the campaign is published.'})
+            campaign.objective = new_objective
 
         if campaign.status == 'DRAFT':
             # For drafts, keep merging into draft_data

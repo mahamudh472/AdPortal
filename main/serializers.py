@@ -121,6 +121,11 @@ class CampaignSerializer(serializers.ModelSerializer):
             'platform_sync_statuses'
         ]
 
+    def validate_objective(self, value):
+        if self.instance and self.instance.status != 'DRAFT' and self.instance.objective != value:
+            raise serializers.ValidationError("Objective cannot be changed once the campaign is published.")
+        return value
+
     def get_platforms(self, obj):
         if obj.status == 'DRAFT':
             return (obj.draft_data or {}).get('platforms') or []
