@@ -1,7 +1,7 @@
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
 from rest_framework import generics, status
-from django.db import models, IntegrityError
+from django.db import models, IntegrityError, transaction
 from accounts.models import User
 from main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .serializers import (
@@ -388,7 +388,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         self._create_missing_platform_campaigns(campaign, data, ad_file)
 
         if should_sync_platforms:
-            sync_campaign_to_platforms_task.delay(campaign.id, 'UPDATE')
+            # Queue sync task AFTER transaction commits to avoid race condition
+            transaction.on_commit(
+                lambda: sync_campaign_to_platforms_task.delay(campaign.id, 'UPDATE')
+            )
         
         return campaign
 
@@ -552,7 +555,11 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         campaign.draft_data = {}
         campaign.save()
         increment_campaign_usage(organization)
-        sync_campaign_to_platforms_task.delay(campaign.id, 'CREATE')
+        
+        # Queue sync task AFTER transaction commits to avoid race condition
+        transaction.on_commit(
+            lambda: sync_campaign_to_platforms_task.delay(campaign.id, 'CREATE')
+        )
 
         # Notify org owner/admins that the campaign is now live
         from accounts.notifications import notify_org_members
