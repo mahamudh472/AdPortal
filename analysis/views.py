@@ -41,6 +41,14 @@ class GenerateReportView(RequiredOrganizationIDMixin, GenericAPIView):
         if not organization:
             return Response({"error": "Organization not found"}, status=404)
 
+        # ── Check for active subscription ──
+        active_subscription = organization.subscriptions.filter(status='active').first()
+        if not active_subscription:
+            return Response(
+                {"error": "Active subscription required to generate reports. Please upgrade your plan."},
+                status=403,
+            )
+
         # ── Parse request body ──
         report_type = request.data.get('report_type', 'custom')
         included_platforms = request.data.get('included_platforms', [])
