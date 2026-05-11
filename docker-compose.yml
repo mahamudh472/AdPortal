@@ -52,6 +52,7 @@ services:
     restart: unless-stopped
     command: celery -A AdPortal worker -l info -c 2
     volumes:
+      - media:/app/media
       - logs:/app/logs
     env_file:
       - .env
