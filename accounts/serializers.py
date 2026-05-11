@@ -55,7 +55,7 @@ class SimpleUserSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()
     class Meta:
         model = User
-        fields = ['id', 'full_name', 'email', 'phone_number', 'is_admin']
+        fields = ['id', 'full_name', 'email', 'phone_number', 'is_admin', 'avatar']
     
     def get_is_admin(self, obj):
         if obj.is_superuser or obj.is_staff:

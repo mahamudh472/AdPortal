@@ -151,7 +151,7 @@ class ProfileView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):
         user = request.user
-        serializer = self.serializer_class(user)
+        serializer = self.serializer_class(user, context={"request": request})
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
