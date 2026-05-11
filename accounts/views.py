@@ -360,6 +360,45 @@ class DeleteAccountView(GenericAPIView):
         user.delete()
         return Response({"message": "Account deleted successfully"}, status=status.HTTP_200_OK)
 
+
+class MetaDataDeletionCallbackView(GenericAPIView):
+    """
+    Meta (Facebook) Data Deletion Callback — thin HTTP adapter.
+
+    Delegates all business logic to ``accounts.services.handle_meta_data_deletion``.
+
+    Endpoint : POST /api/v1/accounts/delete-data/
+    Auth     : None (public — Meta calls this directly)
+    Docs     : https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback
+    """
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        from accounts.services import (
+            MetaAppSecretNotConfigured,
+            MetaSignedRequestInvalid,
+            MetaSignedRequestMissing,
+            handle_meta_data_deletion,
+        )
+
+        signed_request = (
+            request.data.get("signed_request")
+            or request.POST.get("signed_request")
+        )
+
+        try:
+            result = handle_meta_data_deletion(signed_request)
+        except MetaAppSecretNotConfigured as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except MetaSignedRequestMissing as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except MetaSignedRequestInvalid as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class CheckOTPView(GenericAPIView):
     def post(self, request):
         email = request.data.get('email')

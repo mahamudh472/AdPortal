@@ -25,6 +25,7 @@ urlpatterns = [
     path('delete-notification/', views.DeleteNotificationAPIView.as_view(), name='delete_notifications'),
     path('delete-all-notifications/', views.DeleteAllNotificationsAPIView.as_view(), name='delete_all_notifications'),
     path('delete-account/', views.DeleteAccountView.as_view(), name='delete_account'),
+    path('delete-data/', views.MetaDataDeletionCallbackView.as_view(), name='meta_data_deletion_callback'),
     path('test-notifications/', views.TestNotificationAPIView.as_view(), name='test_notifications'),
     path('contact-us/', views.ContactUsView.as_view(), name='contact_us'),
 ]
