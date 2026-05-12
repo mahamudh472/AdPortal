@@ -56,12 +56,30 @@ GOOGLE_ADS_BASE_URL = f"https://googleads.googleapis.com/{GOOGLE_ADS_API_VERSION
 # HTTP HELPERS
 # ────────────────────────────────────────────────────────────
 
-def _headers(access_token: str) -> dict:
-    return {
+def _manager_id() -> str | None:
+    """Return the manager ID from settings, handling test mode."""
+    if getattr(settings, "GOOGLE_ADS_USE_TEST_ACCOUNT", False):
+        mid = getattr(settings, "GOOGLE_ADS_TEST_MANAGER_ID", None)
+    else:
+        mid = getattr(settings, "GOOGLE_ADS_MANAGER_ID", None)
+    
+    if mid:
+        return str(mid).replace("-", "")
+    return None
+
+
+def _headers(access_token: str, login_customer_id: str | None = None) -> dict:
+    if login_customer_id is None:
+        login_customer_id = _manager_id()
+
+    headers = {
         "Authorization": f"Bearer {access_token}",
         "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
         "Content-Type": "application/json",
     }
+    if login_customer_id:
+        headers["login-customer-id"] = str(login_customer_id).replace("-", "")
+    return headers
 
 
 def _customer_id(integration: AdIntegration) -> str:
@@ -114,9 +132,14 @@ def _get_valid_token(integration: AdIntegration) -> str:
     return integration.access_token
 
 
-def _google_get(url: str, access_token: str, params: dict | None = None) -> dict:
+def _google_get(url: str, access_token: str, login_customer_id: str | None = None, params: dict | None = None) -> dict:
     """GET from the Google Ads REST API."""
-    resp = requests.get(url, headers=_headers(access_token), params=params, timeout=30)
+    resp = requests.get(
+        url, 
+        headers=_headers(access_token, login_customer_id), 
+        params=params, 
+        timeout=30
+    )
     if not resp.ok:
         raise RuntimeError(
             f"Google Ads API GET {url} failed [{resp.status_code}]: {resp.text}"
@@ -312,9 +335,9 @@ def create_ad_on_google(
                 "operations": [{
                     "create": {
                         "name": f"{campaign.name} - Budget",
-                        "amountMicros": str(daily_budget_micros),
-                        "deliveryMethod": "STANDARD",
-                        "explicitlyShared": False,
+                        "amount_micros": str(daily_budget_micros),
+                        "delivery_method": "STANDARD",
+                        "explicitly_shared": False,
                     }
                 }]
             })
@@ -331,27 +354,19 @@ def create_ad_on_google(
                     "create": {
                         "name": campaign.name,
                         "status": "PAUSED",
-                        "advertisingChannelType": _google_campaign_type(campaign.objective),
-                        "campaignBudget": budget_resource,
-                        "networkSettings": {
-                            "targetGoogleSearch": True,
-                            "targetSearchNetwork": True,
-                            "targetContentNetwork": False,
+                        "advertising_channel_type": _google_campaign_type(campaign.objective),
+                        "campaign_budget": budget_resource,
+                        "manual_cpc": {},
+                        "network_settings": {
+                            "target_google_search": True,
+                            "target_search_network": True,
+                            "target_content_network": False,
                         },
+                        # Required field in v20
+                        "contains_eu_political_advertising": "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
                     }
                 }]
             }
-            # Add bidding strategy
-            bidding = _bidding_strategy(campaign.objective)
-            if bidding == "MAXIMIZE_CLICKS":
-                campaign_payload["operations"][0]["create"]["maximizeClicks"] = {}
-            elif bidding == "MAXIMIZE_CONVERSIONS":
-                campaign_payload["operations"][0]["create"]["maximizeConversions"] = {}
-            elif bidding == "TARGET_IMPRESSION_SHARE":
-                campaign_payload["operations"][0]["create"]["targetImpressionShare"] = {
-                    "location": "ANYWHERE_ON_PAGE",
-                    "locationFractionMicros": "1000000",
-                }
 
             campaign_resp = _google_post(token, campaign_url, campaign_payload)
             google_campaign_resource = (
@@ -412,7 +427,7 @@ def create_ad_on_google(
                         "campaign": f"customers/{cid}/campaigns/{google_campaign_id}",
                         "status": "ENABLED",
                         "type": "SEARCH_STANDARD",
-                        "cpcBidMicros": str(cpc_bid_micros),
+                        "cpc_bid_micros": str(cpc_bid_micros),
                     }
                 }]
             })
@@ -469,57 +484,39 @@ def create_ad_on_google(
     descriptions = _split_descriptions(description)
 
     try:
-        ad_url = f"{GOOGLE_ADS_BASE_URL}/customers/{cid}/ads:mutate"
-        ad_resp = _google_post(token, ad_url, {
+        adgroupad_url = f"{GOOGLE_ADS_BASE_URL}/customers/{cid}/adGroupAds:mutate"
+        ad_payload = {
             "operations": [{
                 "create": {
-                    "name": ad_name,
+                    "ad_group": f"customers/{cid}/adGroups/{google_adgroup_id}",
                     "status": "PAUSED",
-                    "type": "RESPONSIVE_SEARCH_AD",
-                    "responsiveSearchAd": {
-                        "headlines": [
-                            {"text": h, "pinnedField": "HEADLINE_1" if i == 0 else None}
-                            for i, h in enumerate(headlines)
-                        ],
-                        "descriptions": [
-                            {"text": d} for d in descriptions
-                        ],
-                        "path1": "",
-                        "path2": "",
+                    "ad": {
+                        "name": ad_name,
+                        "final_urls": [destination_url] if destination_url else ["https://example.com"],
+                        "responsive_search_ad": {
+                            "headlines": [
+                                {"text": h[:30]}
+                                for h in headlines
+                            ],
+                            "descriptions": [
+                                {"text": d[:90]} for d in descriptions
+                            ],
+                        },
                     },
-                    "finalUrls": [destination_url] if destination_url else ["https://example.com"],
                 }
             }]
-        })
-        google_ad_resource = (
+        }
+        ad_resp = _google_post(token, adgroupad_url, ad_payload)
+        google_adgroupad_resource = (
             ad_resp.get("results", [{}])[0]
             .get("resourceName", "")
         )
-        google_ad_id = google_ad_resource.split("/")[-1]
-        logger.info("Google Ad created: %s", google_ad_resource)
+        # Resource name format: customers/{cid}/adGroupAds/{adgroup_id}~{ad_id}
+        google_ad_id = google_adgroupad_resource.split("~")[-1] if "~" in google_adgroupad_resource else google_adgroupad_resource.split("/")[-1]
+        logger.info("Google AdGroupAd created: %s", google_adgroupad_resource)
     except Exception as exc:
         raise GoogleAdError(
             "AD", str(exc),
-            platform_campaign=platform_campaign,
-            ad_group=ad_group,
-        ) from exc
-
-    # Create the AdGroupAd (links ad to ad group)
-    try:
-        adgroupad_url = f"{GOOGLE_ADS_BASE_URL}/customers/{cid}/adGroupAds:mutate"
-        _google_post(token, adgroupad_url, {
-            "operations": [{
-                "create": {
-                    "adGroup": f"customers/{cid}/adGroups/{google_adgroup_id}",
-                    "ad": f"customers/{cid}/ads/{google_ad_id}",
-                    "status": "PAUSED",
-                }
-            }]
-        })
-        logger.info("Google AdGroupAd linked: group=%s ad=%s", google_adgroup_id, google_ad_id)
-    except Exception as exc:
-        raise GoogleAdError(
-            "ADGROUPAD", str(exc),
             platform_campaign=platform_campaign,
             ad_group=ad_group,
         ) from exc
@@ -1032,11 +1029,11 @@ def toggle_campaign_status_on_google(
 # PRIVATE: _google_post with token (helper alias for clarity)
 # ────────────────────────────────────────────────────────────
 
-def _google_post(access_token: str, url: str, payload: dict) -> dict:  # noqa: F811
+def _google_post(access_token: str, url: str, payload: dict, login_customer_id: str | None = None) -> dict:  # noqa: F811
     """POST to the Google Ads REST API, raise on non-2xx or API error."""
     resp = requests.post(
         url,
-        headers=_headers(access_token),
+        headers=_headers(access_token, login_customer_id),
         json=payload,
         timeout=30,
     )
