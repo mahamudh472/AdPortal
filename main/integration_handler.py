@@ -1,3 +1,4 @@
+from asyncio import threads
 from datetime import timedelta
 from accounts.permissions import IsOrganizationMember, IsRegularPlatformUser
 from rest_framework.views import APIView
@@ -428,11 +429,7 @@ class TikTokCallback(APIView):
             }
         )
 
-        return Response({
-            "success": True,
-            "created": created,
-            "account_name": user_info['data'].get('display_name')
-        })
+        return redirect(settings.FRONTEND_URL+"/tiktok-auth-callback")
 
 
 class GoogleConnect(RequiredOrganizationIDMixin, APIView):
@@ -534,11 +531,7 @@ class GoogleCallback(APIView):
             },
         )
 
-        return Response({
-            "success": True,
-            "created": created,
-            "google_email": google_email,
-        })
+        return redirect(settings.FRONTEND_URL+"/google-auth-callback")
 
 class AdProfileListView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser]
