@@ -5,7 +5,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 class NotificationConsumer(AsyncWebsocketConsumer):
     async def connect(self) -> None:
         user = self.scope['user']
-        print(f"User {user} connected to WebSocket")
         if user and user.is_anonymous:
             await self.close()
             return

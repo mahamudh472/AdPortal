@@ -18,7 +18,7 @@ class ReportPagination(PageNumberPagination):
 
 class ReportListView(RequiredOrganizationIDMixin, ListAPIView):
     serializer_class = ReportSerializer
-    permission_classes = [IsOrganizationMember | IsAdminOrOwnerOfOrganization | IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember | IsAdminOrOwnerOfOrganization]
     pagination_class = ReportPagination
     
     def get_queryset(self):

@@ -319,7 +319,6 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        print("Validated data:", serializer.initial_data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         
@@ -523,9 +522,7 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
                 try:
                     create_full_ad_for_platform(campaign, full_data, platform, ad_asset=None)
                 except ValidationError as e:
-                    # If integration doesn't exist, add to response but continue
-                    print(f"Warning: Could not create {platform} campaign: {e}")
-
+                    pass
     def _get_campaign_data(self, campaign, request=None):
         """Return the same payload shape as the single-campaign retrieve endpoint."""
         serializer = CampaignSerializer(campaign, context={'request': request})
@@ -905,8 +902,8 @@ class TeamInvitationAPIView(generics.GenericAPIView):
                 invite_link=invite_link
             )
         except Exception as e:
-            print(f"Invitation email failed: {str(e)}")
             # Continue even if email fails
+            pass
 
         # In-app notification: if the invitee already has an account, notify them
         from accounts.notifications import notify_user, notify_org_members
@@ -932,7 +929,11 @@ class InvitationAcceptAPIView(APIView):
 
     def post(self, request, *args, **kwargs):
         token = kwargs.get('token')
-        invitation = TeamInvitation.objects.filter(token=token, status='PENDING').first()
+        from django.core.exceptions import ValidationError
+        try:
+            invitation = TeamInvitation.objects.filter(token=token, status='PENDING').first()
+        except (ValidationError, ValueError):
+            return Response({'error': 'Invalid or expired invitation token.'}, status=status.HTTP_400_BAD_REQUEST)
         if not invitation:
             return Response({'error': 'Invalid or expired invitation token.'}, status=status.HTTP_400_BAD_REQUEST)
         if not User.objects.filter(email=invitation.email).exists():
@@ -952,7 +953,7 @@ class InvitationAcceptAPIView(APIView):
                     organization_name=invitation.organization.name
                 )
             except Exception as e:
-                print(f"Account creation email failed: {str(e)}")
+                pass
         else:
             user = User.objects.filter(email=invitation.email).first()
 
@@ -1022,14 +1023,21 @@ class SyncAdsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        integrations = organization.integrations.all()
+        integrations = organization.integrations.filter(is_active=True)
         if not integrations.exists():
-            return Response({'error': 'No platform integrations found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        for integration in integrations:
-            sync_ads_task.delay(integration.id)
-        return Response({'message': 'Ad sync initiated successfully'}, status=status.HTTP_200_OK)
+            return Response({'error': 'No active platform integrations found for this organization.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        dispatched = 0
+        for integration in integrations:
+            if integration.platform.upper() == 'GOOGLE':
+                continue
+            sync_ads_task.delay(integration.id)
+            dispatched += 1
+
+        if dispatched == 0:
+            return Response({'error': 'No supported active integrations found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'message': 'Ad sync initiated successfully'}, status=status.HTTP_200_OK)
 
 class SyncAnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     """POST {org_id, ?platform, ?start_date, ?end_date} — trigger analytics sync."""
@@ -1255,9 +1263,10 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
         )
         if not integration:
             return Response(
-                {'error': f'No active {platform} integration found for this organization.'},
+                {'error': f'No active {platform} integration found.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
 
         ad_asset = None
         if ad_asset_id:
@@ -1331,16 +1340,6 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
                 )
 
             force_recreate_campaign = not bool(platform_campaign.platform_campaign_id)
-            if platform_campaign.platform_campaign_id and not update_campaign:
-                print(
-                    f"[DEBUG] Reusing existing TikTok campaign id: {platform_campaign.platform_campaign_id}"
-                )
-            elif not platform_campaign.platform_campaign_id:
-                print("[DEBUG] No existing TikTok campaign id found; creating a new one.")
-            else:
-                print(
-                    f"[DEBUG] Updating existing TikTok campaign id: {platform_campaign.platform_campaign_id}"
-                )
 
             result = create_full_ad_for_tiktok(
                 campaign,

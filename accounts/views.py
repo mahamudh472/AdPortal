@@ -41,7 +41,6 @@ class RegisterView(GenericAPIView):
                 code=otp,
                 expires_at=timezone.now() + timezone.timedelta(minutes=10)
             )
-            print(f"Sending OTP {otp} to email {user.email}")
             
             try:
                 send_otp_email(
@@ -54,7 +53,6 @@ class RegisterView(GenericAPIView):
                 return Response({"message": "Otp sent successfully"}, status=status.HTTP_201_CREATED)
             except Exception as e:
                 # Log the error for debugging
-                print(f"Email sending failed: {str(e)}")
                 # Still return success but with different message
                 return Response({
                     "message": "Account created successfully. Email service temporarily unavailable.",
@@ -94,8 +92,7 @@ class VerifyEmailView(GenericAPIView):
                             user_name=user.full_name or user.email.split('@')[0]
                         )
                     except Exception as e:
-                        print(f"Welcome email failed: {str(e)}")
-                    
+                        pass
                     return Response({"message": f"Email {email} successfully verified"}, status=status.HTTP_200_OK)
                     
                 else:
@@ -186,7 +183,6 @@ class SendOTPView(GenericAPIView):
             code=otp,
             expires_at=timezone.now() + timezone.timedelta(minutes=10)
         )
-        print(f"Sending OTP {otp} to email {user.email}")
                 
         try:    
             send_otp_email(
@@ -198,8 +194,6 @@ class SendOTPView(GenericAPIView):
             return Response({"message": "Otp sent successfully"}, status=status.HTTP_200_OK)
         
         except Exception as e:
-            # Log the error for debugging
-            print(f"Email sending failed: {str(e)}")
             # Still return success but with different message
             return Response({
                 "message": "OTP created successfully. Email service temporarily unavailable."
@@ -263,7 +257,6 @@ class NotificationListAPIView(ListAPIView):
     def get_queryset(self):
         # filter with read query param if provided
         read_param = self.request.query_params.get('read')
-        print(f"Filtering notifications with read={read_param}")
         if read_param is not None:
             if read_param.lower() == 'true':
                 return Notification.objects.filter(user=self.request.user, read=True).order_by('-created_at')

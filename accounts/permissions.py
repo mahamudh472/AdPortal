@@ -28,6 +28,9 @@ class IsOrganizationMember(BasePermission):
         user = request.user
         org_id = request.query_params.get("org_id")
 
+        if not user or not user.is_authenticated:
+            return False
+
         if not org_id:
             return False
 
@@ -46,6 +49,9 @@ class IsAdminOrOwnerOfOrganization(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         org_id = request.query_params.get("org_id")
+
+        if not user or not user.is_authenticated:
+            return False
 
         if not org_id:
             return False

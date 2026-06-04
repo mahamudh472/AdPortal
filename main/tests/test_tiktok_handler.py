@@ -103,7 +103,7 @@ class TikTokCreateAdEndpointTests(MainTestBase):
         platform_campaign.refresh_from_db()
         self.assertEqual(platform_campaign.platform_campaign_id, "camp-123")
 
-    @patch("main.views.create_full_ad_for_tiktok")
+    @patch("main.utils.tiktok_handler.create_full_ad_for_tiktok")
     def test_reuses_existing_tiktok_campaign_on_retry(self, mock_create_full_ad):
         campaign, _, platform_campaign = self._setup_tiktok_stack()
         platform_campaign.platform_campaign_id = "camp-existing"
@@ -129,7 +129,7 @@ class TikTokCreateAdEndpointTests(MainTestBase):
         _, kwargs = mock_create_full_ad.call_args
         self.assertFalse(kwargs["force_recreate_campaign"])
 
-    @patch("main.views.create_full_ad_for_tiktok")
+    @patch("main.utils.tiktok_handler.create_full_ad_for_tiktok")
     def test_update_flag_forwards_to_tiktok_helper(self, mock_create_full_ad):
         campaign, _, platform_campaign = self._setup_tiktok_stack()
         platform_campaign.platform_campaign_id = "camp-existing"

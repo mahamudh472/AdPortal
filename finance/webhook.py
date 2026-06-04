@@ -55,9 +55,6 @@ class StripeWebhookView(View):
         organization = Organization.objects.filter(
             snowflake_id=organization_id
         ).first()
-        print(
-            f"checkout.session.completed → org={organization_id}, plan={plan_id}"
-        )
 
         try:
             subscription = Subscription.objects.get(
@@ -74,7 +71,6 @@ class StripeWebhookView(View):
             )
             subscription.save()
 
-            print(f"Activated subscription {subscription.id}")
 
             payment = Payment.objects.create(
                 organization=organization,
@@ -86,7 +82,6 @@ class StripeWebhookView(View):
                 stripe_invoice_id=session.get("invoice"),
                 raw_payload=session,
             )
-            print(f"Created payment {payment.id}")
 
             from accounts.notifications import notify_org_members
 
@@ -97,9 +92,7 @@ class StripeWebhookView(View):
             )
 
         except Subscription.DoesNotExist:
-            print(
-                f"No incomplete subscription found for org={organization_id}, plan={plan_id}"
-            )
+            pass
 
     @staticmethod
     def _handle_payment_failed(invoice):
@@ -165,7 +158,6 @@ class StripeWebhookView(View):
             .first()
         )
         if not subscription:
-            print(f"customer.subscription.updated: no local sub for {stripe_sub_id}")
             return
 
         # ── Sync cancel_at_period_end ──────────────────────────────────────
@@ -209,11 +201,6 @@ class StripeWebhookView(View):
                 subscription.plan = new_plan
                 subscription.pending_plan = None  # downgrade has been applied
 
-                print(
-                    f"Plan changed: {old_plan_name} → {new_plan.name} "
-                    f"for sub {subscription.id}"
-                )
-
                 from accounts.notifications import notify_org_members
 
                 notify_org_members(
@@ -238,16 +225,10 @@ class StripeWebhookView(View):
         ).select_related("organization", "plan").first()
 
         if not subscription:
-            print(f"customer.subscription.deleted: no local sub for {stripe_sub_id}")
             return
 
         subscription.status = "canceled"
         subscription.save(update_fields=["status"])
-
-        print(
-            f"Subscription {subscription.id} marked as canceled "
-            f"(org={subscription.organization_id})"
-        )
 
         from accounts.notifications import notify_org_members
 

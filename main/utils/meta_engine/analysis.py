@@ -51,8 +51,7 @@ def generate_meta_campaign_analysis(
                 budget_amount = float(campaign_data["lifetime_budget"]) / 100
 
         except Exception as e:
-            print("Budget fetch failed:", e)
-
+            pass
         # -------------------------
         # Fetch Insights
         # -------------------------
@@ -127,4 +126,3 @@ def generate_meta_campaign_analysis(
                 },
             )
 
-            print("Saved:", obj.pk, "Created:", created)

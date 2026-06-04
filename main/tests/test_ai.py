@@ -24,8 +24,8 @@ class AICopyGeneratorTests(MainTestBase):
             "product": "Running Shoes",
             "audience": "Fitness enthusiasts",
             "benefits": "Lightweight, durable, comfortable",
-            "tone": "energetic",
-            "copy_type": "headline",
+            "tone": "Friendly",
+            "copy_type": "Headlines",
         }
 
     @patch("main.views.generate_copy", return_value=MOCK_COPY_RESPONSE)

@@ -24,4 +24,3 @@ def get_second_last_month_objects_count(queryset):
 
 if __name__ == "__main__":
     val = get_percentage(120, 100)
-    print(val)

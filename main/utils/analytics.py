@@ -35,6 +35,5 @@ def save_daily_analytics(org, data, account_id, date):
                 "device_breakdown": device_breakdown
             }
         )
-    print(f"Saved daily analytics for {len(data)} campaigns on {date}.")
 
         

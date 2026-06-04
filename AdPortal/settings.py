@@ -125,6 +125,8 @@ else:
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost').strip()
 REDIS_PORT = os.getenv('REDIS_PORT', '6379').strip()
 RUNNING_IN_DOCKER = os.path.exists('/.dockerenv')
+import sys
+TESTING = 'test' in sys.argv
 
 # In Docker Compose, localhost points to the current container, not the Redis service.
 if RUNNING_IN_DOCKER and REDIS_HOST in {'localhost', '127.0.0.1', '::1'}:
@@ -134,21 +136,32 @@ REDIS_URL = os.getenv('REDIS_URL', f"redis://{REDIS_HOST}:{REDIS_PORT}/0").strip
 REDIS_CACHE_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
 REDIS_BROKER_LOCATION = REDIS_URL
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': REDIS_URL.rsplit('/', 1)[0] + '/1',
-    }
-}
-
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [REDIS_BROKER_LOCATION],
+if TESTING:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         }
     }
-}
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL.rsplit('/', 1)[0] + '/1',
+        }
+    }
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_BROKER_LOCATION],
+            }
+        }
+    }
 
 
 # Password validation
@@ -431,3 +444,4 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+CELERY_TASK_ALWAYS_EAGER = TESTING

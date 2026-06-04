@@ -243,10 +243,6 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
             plan=new_plan,
             status="incomplete",
         )
-        print(
-            f"Created subscription {pending_sub.id} for organization "
-            f"{organization_snowflake_id} and plan {new_plan.name}"
-        )
 
         session = stripe.checkout.Session.create(
             ui_mode="embedded",

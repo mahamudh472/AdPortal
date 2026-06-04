@@ -12,6 +12,7 @@ class AnalysisTestBase(AdPortalTestBase):
         self.owner = self.create_user(email="analysis_owner@example.com")
         self.org = self.create_organization(self.owner)
         self.org_id = self.org.snowflake_id
+        self.create_subscription(self.org)
         self.authenticate(self.owner)
 
     def create_report(self, report_type="weekly", status=Report.Status.COMPLETED):

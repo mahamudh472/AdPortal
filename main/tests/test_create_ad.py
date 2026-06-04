@@ -30,6 +30,10 @@ EXPECTED_CAMPAIGN_FIELDS = {
 class CreateAdDraftTests(MainTestBase):
     """POST /api/v1/main/create-ad/ with draft=true"""
 
+    def setUp(self):
+        super().setUp()
+        self.create_integration("META")
+
     def _url(self):
         return f"{BASE}/create-ad/?org_id={self.org_id}"
 
@@ -104,6 +108,10 @@ class UpdateAdDraftTests(MainTestBase):
 class PublishAdTests(MainTestBase):
     """POST /api/v1/main/create-ad/ with draft=false — full publish flow."""
 
+    def setUp(self):
+        super().setUp()
+        self.create_integration("META")
+
     def _url(self):
         return f"{BASE}/create-ad/?org_id={self.org_id}"
 
@@ -139,7 +147,6 @@ class PublishAdTests(MainTestBase):
     @patch("main.views.create_full_ad_for_platform")
     def test_publish_campaign_with_all_fields_returns_201(self, mock_create):
         mock_create.return_value = None
-        self.create_integration("META")
         res = self.client.post(self._url(), self._full_payload(), format="json")
         self.assertIn(res.status_code, [200, 201])
 

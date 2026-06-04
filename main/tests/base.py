@@ -18,11 +18,15 @@ class MainTestBase(AdPortalTestBase):
         return {"org_id": self.org_id}
 
     def create_integration(self, platform="META"):
+        ad_account_id = f"act_{platform.lower()}_123"
+        if platform.upper() == "TIKTOK":
+            ad_account_id = "1234567890123456789"
+            
         return AdIntegration.objects.create(
             organization=self.org,
             platform=platform,
             access_token="fake-token-123",
-            ad_account_id=f"act_{platform.lower()}_123",
+            ad_account_id=ad_account_id,
             is_active=True,
         )
 

@@ -92,6 +92,20 @@ class AdPortalTestBase(TestCase):
             status=status,
         )
 
+    def create_integration(self, organization, platform="META", is_active=True):
+        from main.models import AdIntegration
+        ad_account_id = f"act_{platform.lower()}_123"
+        if platform.upper() == "TIKTOK":
+            ad_account_id = "1234567890123456789"
+
+        return AdIntegration.objects.create(
+            organization=organization,
+            platform=platform,
+            is_active=is_active,
+            access_token="fake-token",
+            ad_account_id=ad_account_id,
+        )
+
     # ──────────────────────────────────────────────────
     # OTP factory
     # ──────────────────────────────────────────────────
@@ -105,3 +119,21 @@ class AdPortalTestBase(TestCase):
             is_used=used,
         )
         return otp
+
+    # ──────────────────────────────────────────────────
+    # Finance factories
+    # ──────────────────────────────────────────────────
+
+    def create_subscription(self, organization, plan_name="starter", status="active"):
+        from finance.models import Plan, Subscription
+        plan, _ = Plan.objects.get_or_create(
+            name=plan_name,
+            defaults={"price": 0, "currency": "USD", "interval": "month"}
+        )
+        return Subscription.objects.create(
+            organization=organization,
+            plan=plan,
+            status=status,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timezone.timedelta(days=30),
+        )

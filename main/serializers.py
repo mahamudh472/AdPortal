@@ -270,7 +270,7 @@ class BudgetItemSerializer(serializers.Serializer):
     platform=serializers.CharField()
     budget_type = serializers.CharField(max_length=20)
     start_date = serializers.DateField()
-    end_date = serializers.DateField()
+    end_date = serializers.DateField(required=False, allow_null=True)
     budget = serializers.IntegerField()
     run_continuously = serializers.BooleanField()
 
@@ -436,13 +436,25 @@ class CreateAdSerializer(serializers.Serializer):
         for platform in value:
             if platform not in allowed_platforms:
                 raise serializers.ValidationError(f"Platform '{platform}' is not supported.")
-        membership = self.context['request'].user.organizationmember_set.first()
+        
+        request = self.context.get('request')
+        if not request:
+            return value
+            
+        org_id = request.query_params.get('org_id')
+        if not org_id:
+            # Fallback for tests or other callers that might not pass org_id in query params
+            membership = request.user.organizationmember_set.first()
+        else:
+            membership = request.user.organizationmember_set.filter(organization__snowflake_id=org_id).first()
+
         if not membership:
-            raise serializers.ValidationError("You are not a member of any organization.")
+            raise serializers.ValidationError("You are not a member of the specified organization.")
+            
         organization = membership.organization
         for platform in value:
-            if not AdIntegration.objects.filter(platform=platform, organization=organization).exists():
-                raise serializers.ValidationError(f"No Ad Integration found for platform '{platform}'. Please set up an ad account integration first.")
+            if not AdIntegration.objects.filter(platform=platform, organization=organization, is_active=True).exists():
+                raise serializers.ValidationError(f"No active Ad Integration found for platform '{platform}'. Please set up an ad account integration first.")
         return value
 
     def validate(self, data):

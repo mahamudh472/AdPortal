@@ -132,12 +132,10 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
     """Upload first local asset and return (ad_format, asset_id)."""
     asset = local_ad.assets.order_by("-id").first()
     if not asset:
-        print("[DEBUG] No assets found for ad; skipping upload")
         return None, None
 
     existing = PlatformAsset.objects.filter(asset=asset, integration=integration).first()
     if existing:
-        print(f"[DEBUG] Asset already uploaded to TikTok: platform_asset_id={existing.platform_asset_id}")
         if asset.file_type == "VIDEO":
             return "SINGLE_VIDEO", existing.platform_asset_id
         return "SINGLE_IMAGE", existing.platform_asset_id
@@ -152,9 +150,6 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
         field_name = "image_file"
         ad_format = "SINGLE_IMAGE"
 
-    print(f"[DEBUG] Uploading {asset.file_type} asset to TikTok")
-    print(f"[DEBUG] Asset file path: {asset.file.path}")
-    print(f"[DEBUG] Asset file exists: {os.path.exists(asset.file.path)}")
 
     signature = None
     upload_filename = os.path.basename(asset.file.path)
@@ -175,7 +170,6 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
             upload_file_bytes = converted.getvalue()
             upload_filename = os.path.splitext(upload_filename)[0] + ".jpg"
             upload_content_type = "image/jpeg"
-            print(f"[DEBUG] Converted WEBP to JPEG for TikTok upload: {upload_filename}")
         else:
             upload_file_bytes = raw_bytes
             upload_content_type = "image/" + os.path.splitext(upload_filename)[1].lstrip(".").lower()
@@ -183,7 +177,6 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
         hasher = hashlib.md5()
         hasher.update(upload_file_bytes)
         signature = hasher.hexdigest()
-        print(f"[DEBUG] Computed image signature: {signature}")
 
     # Some TikTok accounts are strict about multipart field names.
     upload_attempts = [field_name]
@@ -197,10 +190,6 @@ def _upload_tiktok_asset(local_ad: Ad, integration) -> tuple[str, str] | tuple[N
         else:
             with open(asset.file.path, "rb") as f:
                 files = {upload_field: (os.path.basename(asset.file.path), f, "video/mp4")}
-
-        print(f"[DEBUG] Multipart field name: {upload_field}")
-        print(f"[DEBUG] Multipart filename: {upload_filename if asset.file_type == 'IMAGE' else os.path.basename(asset.file.path)}")
-        print(f"[DEBUG] Multipart content type: {upload_content_type if asset.file_type == 'IMAGE' else 'video/mp4'}")
 
         data_payload = {
             "advertiser_id": integration.ad_account_id,
@@ -351,14 +340,12 @@ def create_platform_campaign_for_tiktok(
     ACCESS_TOKEN,
     force_recreate=False,
 ):
-    print(type(campaign))
     platform_campaign = _select_platform_campaign(campaign, integration)
     campaign_budget = campaign.campaignbudget_set.filter(platform='TIKTOK').first()
     if not campaign_budget:
         raise ValueError("TikTok budget is missing for this campaign")
 
     if platform_campaign.platform_campaign_id and not force_recreate:
-        print("TikTok Campaign already exists. Skipping creation.")
         return platform_campaign.platform_campaign_id
     
     url = f"{BASE_URL}/campaign/create/"
@@ -397,7 +384,6 @@ def create_platform_campaign_for_tiktok(
             campaign_id = data['data']['campaign_id']
             platform_campaign.platform_campaign_id = campaign_id
             platform_campaign.save()
-            print(f"✅ Campaign Created: {campaign_id}")
             return campaign_id
 
         message = str(data.get('message', '')).lower()
@@ -415,7 +401,6 @@ def create_platform_campaign_for_tiktok(
                 f"TikTok campaign create failed [{data.get('code')}]: {data.get('message', 'Unknown error')}"
             )
 
-        print("TikTok campaign name already exists. Retrying with a unique test name.")
 
     raise ValueError(
         f"TikTok campaign create failed [{(last_data or {}).get('code')}]: {(last_data or {}).get('message', 'Unknown error')}"
@@ -466,7 +451,6 @@ def update_platform_campaign_for_tiktok(
     if res.status_code < 400 and data.get('code') == 0:
         platform_campaign.last_synced_at = timezone.now()
         platform_campaign.save()
-        print(f"✅ Campaign Updated: {platform_campaign.platform_campaign_id}")
         return platform_campaign.platform_campaign_id
 
     raise ValueError(
@@ -476,7 +460,6 @@ def update_platform_campaign_for_tiktok(
 
 def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADVERTISER_ID=None, ACCESS_TOKEN=None):
     url = f"{BASE_URL}/adgroup/create/"
-    print(campaign_id)
     if campaign and integration:
         platform_campaign = PlatformCampaign.objects.filter(
             unified_campaign=campaign,
@@ -496,19 +479,12 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
         raise ValueError("No local AdGroup found for selected PlatformCampaign")
 
     if adgroup.platform_adgroup_id:
-        print(f"[DEBUG] Reusing existing TikTok adgroup id: {adgroup.platform_adgroup_id}")
         return adgroup.platform_adgroup_id
 
     advertiser_id = ADVERTISER_ID or (integration.ad_account_id if integration else None)
     access_token = ACCESS_TOKEN or (integration.access_token if integration else None)
 
     campaign_budget = platform_campaign.unified_campaign.campaignbudget_set.filter(platform='TIKTOK').first()
-    print(f"[DEBUG] Campaign Budget ID: {campaign_budget.id if campaign_budget else 'None'}")
-    print(f"[DEBUG] AdGroup start_time (raw): {adgroup.start_time}")
-    print(f"[DEBUG] AdGroup end_time (raw): {adgroup.end_time}")
-    print(f"[DEBUG] Campaign Budget start_date: {campaign_budget.start_date if campaign_budget else 'None'}")
-    print(f"[DEBUG] Campaign Budget end_date: {campaign_budget.end_date if campaign_budget else 'None'}")
-    print(f"[DEBUG] Current time (now): {timezone.now()}")
 
     if not advertiser_id:
         raise ValueError("TikTok advertiser_id (ad_account_id) is missing in integration")
@@ -528,17 +504,13 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
         schedule_start_date = campaign_budget.start_date
         schedule_end_date = campaign_budget.end_date
         schedule_start_time = to_tiktok_datetime(timezone.make_aware(timezone.datetime.combine(schedule_start_date, timezone.datetime.min.time())))
-        print(f"[DEBUG] Using CampaignBudget dates. schedule_start_time (TikTok format): {schedule_start_time}")
         if schedule_end_date:
             schedule_end_time = to_tiktok_datetime(timezone.make_aware(timezone.datetime.combine(schedule_end_date, timezone.datetime.min.time())))
-            print(f"[DEBUG] schedule_end_time (TikTok format): {schedule_end_time}")
         else:
             schedule_end_time = None
-            print(f"[DEBUG] No end date in CampaignBudget")
     else:
         schedule_start_time = to_tiktok_datetime(adgroup.start_time)
         schedule_end_time = to_tiktok_datetime(adgroup.end_time) if adgroup.end_time else None
-        print(f"[DEBUG] No CampaignBudget found. Using AdGroup times. schedule_start_time (TikTok format): {schedule_start_time}")
 
     if campaign_budget and campaign_budget.end_date:
         schedule_type = "SCHEDULE_START_END"
@@ -608,7 +580,6 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
             adgroup_id = data['data']['adgroup_id']
             adgroup.platform_adgroup_id = adgroup_id
             adgroup.save()
-            print(f"✅ Ad Group Created: {adgroup_id}")
             return adgroup_id
 
         last_error = data
@@ -630,7 +601,6 @@ def create_ad_group_for_tiktok(campaign_id, campaign=None, integration=None, ADV
             )
         )
         if duplicate_name_error and adgroup.platform_adgroup_id:
-            print(f"[DEBUG] TikTok adgroup already exists; reusing saved id: {adgroup.platform_adgroup_id}")
             return adgroup.platform_adgroup_id
         if data.get('code') != 40002:
             break
@@ -746,10 +716,8 @@ def create_full_ad_for_tiktok(
     }
 
 def create_tiktok_ad_flow():
-    print(f"🚀 Starting TikTok Sandbox Flow for Advertiser: {ADVERTISER_ID}")
 
     # --- 1. CREATE CAMPAIGN ---
-    print("\n1️⃣ Creating Campaign...")
     url = f"{BASE_URL}/campaign/create/"
     payload = {
         "advertiser_id": ADVERTISER_ID,
@@ -763,14 +731,11 @@ def create_tiktok_ad_flow():
     data = res.json()
     
     if data['code'] != 0:
-        print(f"❌ Campaign Failed: {data['message']}")
         return
         
     campaign_id = data['data']['campaign_id']
-    print(f"✅ Campaign Created: {campaign_id}")
     # campaign_id = "1851326442807426"  # Use existing campaign for testing
     # --- 2. CREATE AD GROUP (Targeting) ---
-    print("\n2️⃣ Creating Ad Group...")
     url = f"{BASE_URL}/adgroup/create/"
     
     # Ad Group requires stricter validation than Meta
@@ -796,19 +761,15 @@ def create_tiktok_ad_flow():
     data = res.json()
     
     if data['code'] != 0:
-        print(f"❌ Ad Group Failed: {data['message']}")
         return
 
     adgroup_id = data['data']['adgroup_id']
-    print(f"✅ Ad Group Created: {adgroup_id}")
 
     # --- 3. UPLOAD VIDEO (The Hard Part) ---
-    print("\n3️⃣ Uploading Video...")
     # NOTE: You must have a video file named 'ad_video.mp4' in this folder
     video_path = "ad_video.mp4" 
     
     if not os.path.exists(video_path):
-        print("❌ Error: 'ad_video.mp4' not found. Please add a video file.")
         return
 
     # Step A: Initialize Upload to get a Signature
@@ -832,14 +793,11 @@ def create_tiktok_ad_flow():
         data = res.json()
 
     if data['code'] != 0:
-        print(f"❌ Video Upload Failed: {data['message']}")
         return
 
     video_id = data['data']['video_id']
-    print(f"✅ Video Uploaded. ID: {video_id}")
 
     # --- 4. CREATE AD (Creative) ---
-    print("\n4️⃣ Creating Final Ad...")
     url = f"{BASE_URL}/ad/create/"
     
     payload = {
@@ -864,16 +822,12 @@ def create_tiktok_ad_flow():
     data = res.json()
     
     if data['code'] != 0:
-        print(f"❌ Ad Creation Failed: {data['message']}")
-        print(data) # Print full error for debugging
         return
 
     ad_id = data['data']['ad_ids'][0]
-    print(f"\n🎉 SUCCESS! TikTok Ad Created. ID: {ad_id}")
 
 def get_campaigns():
     url = f"{BASE_URL}/campaign/get/"
-    print(ADVERTISER_ID)
     payload = {
         "advertiser_id": ADVERTISER_ID
     }
@@ -884,14 +838,10 @@ def get_campaigns():
         json.dump(data, f, indent=4)
     
     if data['code'] != 0:
-        print(f"❌ Get Campaigns Failed: {data['message']}")
         return
     
     campaigns = data['data']['list']
-    print("\n📋 Current Campaigns:")
-    for campaign in campaigns:
-        print(f"- ID: {campaign['campaign_id']}, Name: {campaign['campaign_name']}, Objective: {campaign['objective_type']}")
-        print(campaign)
+    return campaigns
 
 def get_single_campaign(campaign_id):
     url = f"{BASE_URL}/campaign/get/"
@@ -904,12 +854,9 @@ def get_single_campaign(campaign_id):
     data = res.json()
     
     if data['code'] != 0:
-        print(f"❌ Get Single Campaign Failed: {data['message']}")
         return
     
     campaign = data['data']['list'][0]
-    print(f"\n📋 Campaign Details for ID {campaign_id}:")
-    print(json.dumps(campaign, indent=4))
 
 def get_analytics(ACCESS_TOKEN=None, ADVERTISER_ID=None):
     url = f"{PRODUCTION_URL}/report/integrated/get/"
@@ -928,19 +875,13 @@ def get_analytics(ACCESS_TOKEN=None, ADVERTISER_ID=None):
     
     res = requests.get(url, headers=HEADERS, params=payload)
 
-    print("Response Status Code:", res.status_code)
-    print("Response Content:", res.text)
 
     data = res.json()
     
     if data['code'] != 0:
-        print(f"❌ Get Analytics Failed: {data['message']}")
         return f"❌ Get Analytics Failed: {data['message']}"
     
     reports = data['data']['list']
-    print("\n📊 Analytics Report:")
-    for report in reports:
-        print(report)
     return reports
 
 def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_ID, target_date=None):
@@ -1050,4 +991,3 @@ if __name__ == '__main__':
     # get_campaigns()
     # get_single_campaign("7582640422065864711")
     result = get_analytics(ACCESS_TOKEN, ADVERTISER_ID)
-    print(result)

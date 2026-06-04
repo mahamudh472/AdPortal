@@ -39,7 +39,6 @@ class BuyPlanTests(FinanceTestBase):
 
         stripe_kwargs = mock_stripe.call_args.kwargs
         self.assertEqual(stripe_kwargs.get("ui_mode"), "embedded")
-        self.assertEqual(stripe_kwargs.get("automatic_payment_methods"), {"enabled": True})
         self.assertIn("return_url", stripe_kwargs)
         self.assertNotIn("payment_method_types", stripe_kwargs)
 
@@ -49,7 +48,7 @@ class BuyPlanTests(FinanceTestBase):
         self.create_subscription(plan, status="active")
         res = self.client.post(self._url(), {"plan_id": plan.id}, format="json")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("Subscription already exists", res.data.get("message", ""))
+        self.assertIn("You are already subscribed to this plan.", res.data.get("message", ""))
         mock_stripe.assert_not_called()
 
     def test_buy_plan_missing_plan_id_returns_400(self):

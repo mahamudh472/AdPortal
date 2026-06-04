@@ -42,7 +42,7 @@ class TeamMemberListTests(MainTestBase):
     def test_list_team_members_returns_200(self):
         res = self.client.get(self._url(), {"org_id": self.org_id})
         self.assertEqual(res.status_code, 200)
-        self.assertGreaterEqual(len(res.data["results"]), 1)
+        self.assertGreaterEqual(len(res.data), 1)
 
     def test_list_team_members_non_member_returns_403(self):
         other = self.create_user(email="outsider@example.com")
