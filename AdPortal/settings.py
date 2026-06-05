@@ -22,6 +22,7 @@ if not os.path.exists('/.dockerenv'):
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+from .unfold_conf import UNFOLD
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -49,11 +50,11 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    'admin_dashboard',
-    'accounts',
-    'main',
-    'finance',
-    'analysis',
+    'apps.admin_dashboard',
+    'apps.accounts',
+    'apps.main',
+    'apps.finance',
+    'apps.analysis',
 
     'rest_framework',
     'rest_framework_simplejwt',
@@ -307,12 +308,12 @@ from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
     # Every Monday at 09:00 UTC — send weekly performance summaries
     'weekly-performance-summary': {
-        'task': 'main.tasks.weekly_performance_summary_task',
+        'task': 'apps.main.tasks.weekly_performance_summary_task',
         'schedule': crontab(hour=9, minute=0, day_of_week=1),
     },
     # Every day at 02:00 UTC — generate AI insights for all active campaigns
     'daily-ai-insights-for-active-campaigns': {
-        'task': 'main.tasks.generate_ai_insights_for_active_campaigns',
+        'task': 'apps.main.tasks.generate_ai_insights_for_active_campaigns',
         'schedule': crontab(hour=2, minute=0),
     },
 }
@@ -360,82 +361,6 @@ LOGGING = {
 }
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-
-# Django Unfold Configuration
-UNFOLD = {
-    "SITE_TITLE": "AdPortal Admin",
-    "SITE_HEADER": "AdPortal Administration",
-    "SITE_URL": "/",
-    "SHOW_HISTORY": True,
-    "SHOW_VIEW_ON_SITE": True,
-    "ENVIRONMENT": "development" if DEBUG else "production",
-    "COLORS": {
-        "primary": {
-            "50": "#eff6ff",
-            "100": "#dbeafe",
-            "200": "#bfdbfe",
-            "300": "#93c5fd",
-            "400": "#60a5fa",
-            "500": "#3b82f6",
-            "600": "#2563eb",
-            "700": "#1d4ed8",
-            "800": "#1e40af",
-            "900": "#1e3a8a",
-        },
-    },
-    "TABS": [
-        {
-            "models": ["accounts.user"],
-            "items": [
-                {
-                    "title": "Users",
-                    "icon": "people",
-                    "link": "admin:accounts_user_changelist",
-                },
-            ],
-        },
-        {
-            "models": ["admin_dashboard.campaign"],
-            "items": [
-                {
-                    "title": "Campaigns",
-                    "icon": "rocket_launch",
-                    "link": "admin:admin_dashboard_campaign_changelist",
-                },
-            ],
-        },
-        {
-            "models": ["main.integration"],
-            "items": [
-                {
-                    "title": "Integrations",
-                    "icon": "hub",
-                    "link": "admin:main_integration_changelist",
-                },
-            ],
-        },
-        {
-            "models": ["finance.transaction"],
-            "items": [
-                {
-                    "title": "Transactions",
-                    "icon": "attach_money",
-                    "link": "admin:finance_transaction_changelist",
-                },
-            ],
-        },
-        {
-            "models": ["analysis.report"],
-            "items": [
-                {
-                    "title": "Reports",
-                    "icon": "assessment",
-                    "link": "admin:analysis_report_changelist",
-                },
-            ],
-        },
-    ],
-}
 
 # Celery Configuration
 CELERY_BROKER_URL = REDIS_BROKER_LOCATION

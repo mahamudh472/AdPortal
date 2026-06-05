@@ -18,16 +18,16 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect, GoogleConnect, GoogleCallback
+from apps.main.integration_handler import MetaConnect, MetaCallback, TikTokCallback, TikTokConnect, GoogleConnect, GoogleCallback
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/accounts/', include('accounts.urls')),
-    path('api/v1/admin/', include('admin_dashboard.urls')),
-    path('api/v1/finance/', include('finance.urls')),
-    path('api/v1/main/', include('main.urls')),
-    path('api/v1/analysis/', include('analysis.urls')),
+    path('api/v1/accounts/', include('apps.accounts.urls')),
+    path('api/v1/admin/', include('apps.admin_dashboard.urls')),
+    path('api/v1/finance/', include('apps.finance.urls')),
+    path('api/v1/main/', include('apps.main.urls')),
+    path('api/v1/analysis/', include('apps.analysis.urls')),
     path('api/v1/auth/meta/connect/', MetaConnect.as_view()),
     path('api/v1/auth/meta/callback/', MetaCallback.as_view()),
     path('api/v1/auth/tiktok/connect/', TikTokConnect.as_view()),
