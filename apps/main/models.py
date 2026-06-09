@@ -113,6 +113,9 @@ class AdIntegration(models.Model):
     # Facebook Page ID (Meta only — required for ad creatives)
     page_id = models.CharField(max_length=100, null=True, blank=True)
     
+    # Google Ads Manager Account ID (Google only — if under an MCC)
+    manager_id = models.CharField(max_length=100, null=True, blank=True)
+    
     # Auth Tokens
     access_token = models.TextField()
     refresh_token = models.TextField(null=True, blank=True)

@@ -253,12 +253,124 @@ def fetch_google_ads_account(organization):
         }
 
     resource_names = payload.get("resourceNames", [])
+    active_version = version
     data = []
     for resource_name in resource_names:
         account_id = resource_name.split("/")[-1]
-        data.append({"acc_id": account_id, "resource_name": resource_name})
+        
+        # Determine if the customer is a manager
+        search_url = f"https://googleads.googleapis.com/{active_version}/customers/{account_id}/googleAds:search"
+        search_payload = {
+            "query": "SELECT customer.id, customer.descriptive_name, customer.manager, customer.currency_code FROM customer"
+        }
+        search_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "developer-token": developer_token,
+            "Content-Type": "application/json",
+            "login-customer-id": account_id,
+        }
+        
+        try:
+            r = requests.post(search_url, json=search_payload, headers=search_headers, timeout=10)
+            if r.status_code == 200:
+                res_results = r.json().get("results", [])
+                if res_results:
+                    res_data = res_results[0].get("customer", {})
+                    is_manager = res_data.get("manager", False)
+                    name = res_data.get("descriptiveName", f"Account {account_id}")
+                    currency = res_data.get("currencyCode", "USD")
+                else:
+                    is_manager = False
+                    name = f"Account {account_id}"
+                    currency = "USD"
+                
+                # Enforce that only Manager Accounts are returned
+                if is_manager:
+                    data.append({
+                        "acc_id": account_id,
+                        "account_name": name,
+                        "is_manager": is_manager,
+                        "currency": currency,
+                    })
+        except Exception:
+            pass
 
     return {"data": data}
+
+
+def fetch_google_child_accounts(organization, manager_id):
+    ad_profile = AdIntegration.objects.filter(
+        organization=organization,
+        platform=Platform.GOOGLE
+    ).first()
+
+    if not ad_profile:
+        return None
+
+    access_token = ad_profile.access_token
+    developer_token = getattr(settings, "GOOGLE_ADS_DEVELOPER_TOKEN", None)
+    configured_api_version = str(
+        getattr(settings, "GOOGLE_ADS_API_VERSION", "v18")
+    ).strip().strip('"').strip("'")
+    if not developer_token:
+        return {
+            "error": "Google Ads developer token is not configured.",
+            "status_code": status.HTTP_400_BAD_REQUEST,
+        }
+
+    normalized_configured_version = configured_api_version.lower().lstrip("v")
+    configured_version = f"v{normalized_configured_version}" if normalized_configured_version else "v18"
+    
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "developer-token": developer_token,
+        "Content-Type": "application/json",
+        "login-customer-id": str(manager_id).replace("-", ""),
+    }
+
+    url = f"https://googleads.googleapis.com/{configured_version}/customers/{manager_id}/googleAds:search"
+    query = """
+        SELECT
+            customer_client.id,
+            customer_client.descriptive_name,
+            customer_client.manager,
+            customer_client.currency_code
+        FROM customer_client
+        WHERE customer_client.status = 'ENABLED'
+          AND customer_client.level = 1
+    """
+    
+    try:
+        response = requests.post(url, json={"query": query}, headers=headers, timeout=15)
+        if response.status_code >= 400:
+            return {
+                "error": "Failed to fetch sub-accounts from Google Ads.",
+                "status_code": response.status_code,
+                "details": response.json(),
+            }
+        
+        results = response.json().get("results", [])
+        data = []
+        for row in results:
+            client = row.get("customerClient", {})
+            client_id = str(client.get("id", ""))
+            if not client_id:
+                continue
+            # Enforce that only non-manager (client) accounts are returned
+            if client.get("manager", False):
+                continue
+            data.append({
+                "acc_id": client_id,
+                "account_name": client.get("descriptiveName", f"Account {client_id}"),
+                "is_manager": False,
+                "currency": client.get("currencyCode", "USD"),
+            })
+        return {"data": data}
+    except Exception as e:
+        return {
+            "error": f"Error fetching sub-accounts: {str(e)}",
+            "status_code": status.HTTP_502_BAD_GATEWAY,
+        }
 
 
 class MetaConnect(RequiredOrganizationIDMixin, APIView):
@@ -554,7 +666,11 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
         elif platform == "TIKTOK":
             profiles = fetch_tiktok_ads_account(organization)
         elif platform == "GOOGLE":
-            profiles = fetch_google_ads_account(organization)
+            manager_id = request.GET.get('manager_id')
+            if manager_id:
+                profiles = fetch_google_child_accounts(organization, manager_id)
+            else:
+                profiles = fetch_google_ads_account(organization)
         else:
             return Response({'error': 'Unsupported platform'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -626,6 +742,20 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
                 "success": "Ad account selected.",
                 "ad_account_id": integration.ad_account_id,
                 "page_id": integration.page_id,
+            })
+
+        if platform == Platform.GOOGLE:
+            manager_id = request.data.get('manager_id')
+            if not manager_id:
+                return Response({'error': 'manager_id is required for GOOGLE.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            integration.ad_account_id = str(account_id)
+            integration.manager_id = str(manager_id)
+            integration.save(update_fields=["ad_account_id", "manager_id"])
+            return Response({
+                "success": "Ad account selected.",
+                "ad_account_id": integration.ad_account_id,
+                "manager_id": integration.manager_id,
             })
 
         integration.ad_account_id = account_id

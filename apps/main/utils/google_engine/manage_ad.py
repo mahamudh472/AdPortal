@@ -68,9 +68,20 @@ def _manager_id() -> str | None:
     return None
 
 
+def _get_login_customer_id(access_token: str) -> str | None:
+    """Resolve the login customer ID for the given access token, falling back to settings."""
+    try:
+        integration = AdIntegration.objects.filter(access_token=access_token).first()
+        if integration and integration.manager_id:
+            return str(integration.manager_id).replace("-", "")
+    except Exception:
+        pass
+    return _manager_id()
+
+
 def _headers(access_token: str, login_customer_id: str | None = None) -> dict:
     if login_customer_id is None:
-        login_customer_id = _manager_id()
+        login_customer_id = _get_login_customer_id(access_token)
 
     headers = {
         "Authorization": f"Bearer {access_token}",

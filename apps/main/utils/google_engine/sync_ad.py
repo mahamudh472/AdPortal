@@ -49,12 +49,38 @@ GOOGLE_ADS_BASE_URL = f"https://googleads.googleapis.com/{GOOGLE_ADS_API_VERSION
 # HTTP / AUTH HELPERS
 # ============================================================
 
-def _headers(access_token: str) -> dict:
-    return {
+def _get_login_customer_id(access_token: str) -> str | None:
+    """Resolve the login customer ID for the given access token, falling back to settings."""
+    try:
+        from apps.main.models import AdIntegration
+        integration = AdIntegration.objects.filter(access_token=access_token).first()
+        if integration and integration.manager_id:
+            return str(integration.manager_id).replace("-", "")
+    except Exception:
+        pass
+    
+    # Fallback to settings
+    if getattr(settings, "GOOGLE_ADS_USE_TEST_ACCOUNT", False):
+        mid = getattr(settings, "GOOGLE_ADS_TEST_MANAGER_ID", None)
+    else:
+        mid = getattr(settings, "GOOGLE_ADS_MANAGER_ID", None)
+    if mid:
+        return str(mid).replace("-", "")
+    return None
+
+
+def _headers(access_token: str, login_customer_id: str | None = None) -> dict:
+    if login_customer_id is None:
+        login_customer_id = _get_login_customer_id(access_token)
+
+    headers = {
         "Authorization": f"Bearer {access_token}",
         "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
         "Content-Type": "application/json",
     }
+    if login_customer_id:
+        headers["login-customer-id"] = str(login_customer_id).replace("-", "")
+    return headers
 
 
 def _customer_id(integration) -> str:
