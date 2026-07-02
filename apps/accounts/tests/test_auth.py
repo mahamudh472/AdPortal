@@ -196,6 +196,28 @@ class LoginTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 401)
 
+    def test_login_success_returns_absolute_avatar_url(self):
+        user = self.create_user(email="login_avatar@example.com", password="Pass123!")
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        user.avatar = SimpleUploadedFile(
+            name='test_avatar.jpg',
+            content=b'dummy_image_data',
+            content_type='image/jpeg'
+        )
+        user.save()
+
+        res = self.client.post(
+            self._url(),
+            {"email": "login_avatar@example.com", "password": "Pass123!"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("user", res.data)
+        avatar_url = res.data["user"]["avatar"]
+        self.assertIsNotNone(avatar_url)
+        self.assertTrue(avatar_url.startswith("http://") or avatar_url.startswith("https://"))
+        self.assertIn("test_avatar.jpg", avatar_url)
+
 
 class TokenRefreshTests(AdPortalTestBase):
 

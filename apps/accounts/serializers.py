@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from urllib3 import request
 from .models import NotificationSetting, User, Notification, ContactUsMessage
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.main.models import Organization
@@ -87,7 +88,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     
         data.update(
             {
-                'user': SimpleUserSerializer(self.user).data,
+                'user': SimpleUserSerializer(self.user, context={"request": self.context.get('request')}).data,
                 'organizations': list(organizations),
                 'current_plan': {
                     'plan_name': plan_name if subscription else None,
