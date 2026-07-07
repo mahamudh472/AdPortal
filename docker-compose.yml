@@ -124,7 +124,7 @@ services:
       - ./dozzle/users.yml:/data/users.yml:ro
     environment:
       DOZZLE_AUTH_PROVIDER: simple
-      DOZZLE_BASE: /dozzle/
+      DOZZLE_BASE: /dozzle
 
 volumes:
   postgres_data:
