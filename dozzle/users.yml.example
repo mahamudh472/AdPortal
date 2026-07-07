@@ -1,0 +1,14 @@
+# Dozzle Simple Auth configuration template.
+# Copy this file to users.yml and update it with your desired credentials.
+#
+# To generate a bcrypt hashed password, you can run:
+#   docker run --rm amir20/dozzle generate <username> --password <password> --email <email> --name <fullname>
+#
+# Or manually hash a password using a bcrypt generator (rounds=10 or 12).
+
+users:
+  admin:
+    # Hashed password using bcrypt. Example below is "admin"
+    password: "$2a$12$R6a5f78sHhY13gJ6pL2eYuR2bI4mOkPwQs3bT2uY1zA4eRi5cG6d2"
+    email: "admin@example.com"
+    name: "Administrator"
