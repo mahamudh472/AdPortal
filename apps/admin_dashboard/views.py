@@ -3,9 +3,9 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from apps.accounts.models import User, ContactUsMessage
 from apps.accounts.serializers import ContactUsMessageSerializer
-from apps.main.models import UnifiedCampaign, PlatformCampaign, Organization, OrganizationMember
+from apps.main.models import UnifiedCampaign, Organization, OrganizationMember
 from rest_framework.permissions import IsAdminUser
-from apps.main.serializers import CampaignSerializer, OrganizationSerializer
+from apps.main.serializers import SimpleCampaignSerializer, OrganizationSerializer, CampaignSerializer
 from rest_framework.pagination import PageNumberPagination
 from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
 from django.db.models import Q, Sum, Count
@@ -13,71 +13,32 @@ from datetime import timedelta
 from decimal import Decimal
 import calendar
 from django.utils import timezone
-from .utils import get_percentage, get_last_month_objects_count, get_second_last_month_objects_count
 from .models import AdminNotificationSettings, AdminReport
 from apps.finance.serializers import PaymentSerializer
 from apps.finance.models import Payment, Subscription, Plan
 from rest_framework import viewsets
+from .services.dashboard import (
+    get_users_card_data, get_campaigns_card_data,
+    get_chart_data, get_camaigns_count_by_platform,
+    get_revenue_card_data, get_system_status
+)
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
 
-	def get(request, *args, **kwargs):
-
-		users = User.objects.all()
-		last_month_users = get_last_month_objects_count(users)
-		second_last_month_users = get_second_last_month_objects_count(users)
-		user_info_percentage = get_percentage(last_month_users, second_last_month_users)
-
-		campaings = PlatformCampaign.objects.all()
-		last_month_campaigns = get_last_month_objects_count(campaings)
-		second_last_month_campaigns = get_second_last_month_objects_count(campaings)
-		campaign_info_percentage = get_percentage(last_month_campaigns, second_last_month_campaigns)
-
-		# TODO: Need to make revenue dynamic
-
-		revenue = 0
-
-		chart_data = [
-		    { 'month': "Jan", 'users': 2000, 'revenue': 2400 },
-		    { 'month': "Feb", 'users': 4000, 'revenue': 4200 },
-		    { 'month': "Mar", 'users': 7000, 'revenue': 6800 },
-		    { 'month': "Apr", 'users': 9000, 'revenue': 7600 },
-		    { 'month': "May", 'users': 10500, 'revenue': 8900 },
-		    { 'month': "Jun", 'users': 12000, 'revenue': 11000 },
-		    { 'month': "Jul", 'users': 13500, 'revenue': 12500 },
-		  ];
-
-		meta_campaigns = campaings.filter(integration__platform='META').count()
-		google_campaigns = campaings.filter(integration__platform='GOOGLE').count()
-		tiktok_campaigns = campaings.filter(integration__platform='TIKTOK').count()
+	def get(self, request, *args, **kwargs):
 
 		recent_campaigns = UnifiedCampaign.objects.order_by('-created_at')[:5]
 
 		return Response(
 				{
-					"users": {
-						"value": users.count(),
-						"past_month": last_month_users,
-						'percentage': user_info_percentage
-					},
-					"campaings": {
-						'value': campaings.count(),
-						'last_month': last_month_campaigns,
-						'percentage': campaign_info_percentage
-					},
-					'revenue': {
-						'value': revenue,
-						'percentage': 0
-					},
-					'chart_data': chart_data,
-					'campaings_by_platform':{
-					'meta': meta_campaigns,
-					'google': google_campaigns,
-					'tiktok': tiktok_campaigns
-					},
-					'recent_campaigns': CampaignSerializer(recent_campaigns, many=True).data
-
+					"users": get_users_card_data(),
+					"campaings": get_campaigns_card_data(),
+					'revenue': get_revenue_card_data(),
+					'chart_data': get_chart_data(),
+					'campaings_by_platform': get_camaigns_count_by_platform(),
+					'recent_campaigns': SimpleCampaignSerializer(recent_campaigns, many=True).data,
+                    'system_status': get_system_status()
 				}
 			)
 

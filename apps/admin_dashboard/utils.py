@@ -5,7 +5,7 @@ from apps.accounts.models import User
 
 def get_percentage(new:int, old:int) -> str:
     if old == 0:
-        return "100%"
+        return "100%" if new > 0 else "0%"
     return f"{((new-old)/old)*100}%"
 
 def get_last_month_objects_count(queryset) -> int:

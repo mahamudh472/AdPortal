@@ -312,25 +312,15 @@ class BudgetItemSerializer(serializers.Serializer):
 
 class SimpleCampaignSerializer(serializers.ModelSerializer):
     platforms = serializers.SerializerMethodField()
-    spend = serializers.SerializerMethodField()
-    performance = serializers.SerializerMethodField()
     class Meta:
         model = UnifiedCampaign
-        fields = ['id', 'name', 'status', 'platforms', 'created_at', 'spend', 'performance']
+        fields = ['id', 'name', 'status', 'platforms', 'created_at']
+
     def get_platforms(self, obj):
         if obj.status == 'DRAFT':
             return (obj.draft_data or {}).get('platforms') or []
         return [pc.integration.platform for pc in obj.platform_campaigns.all()]
-    def get_spend(self, obj):
-        return 0
-    def get_performance(self, obj):
-        return {
-            'impressions': 0,
-            'clicks': 0,
-            'conversions': 0,
-            'ctr': 0,
-            'roas': 0
-        }
+
 
 class CreateAdSerializer(serializers.Serializer):
     campaign_id = serializers.IntegerField(required=False)
