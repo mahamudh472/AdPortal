@@ -22,6 +22,7 @@ from .services.dashboard import (
     get_chart_data, get_camaigns_count_by_platform,
     get_revenue_card_data, get_system_status
 )
+from .services.user_management import get_user_list, get_user_stats
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -156,47 +157,23 @@ class CampaignListAPIView(generics.ListAPIView):
 	pagination_class = CampaignListPagination
 
 class UserListPagination(PageNumberPagination):
-	max_page_size = 100
-	page_size = 10
+    max_page_size = 100
+    page_size = 10
+    page_size_query_param = "page_size"
 
 class UserManagementAPIView(generics.GenericAPIView):
     permission_classes = [permissions.IsAdminUser]
 
     def get(self, *args, **kwargs):
-        all_users = User.objects.all()
-        total_users = all_users.count()
-        past_date = timezone.now() - timedelta(days=7)
-        last_week_created = all_users.filter(joined_at__gte=past_date).count()
-        active_users = all_users.filter(is_active=True).count()
-        suspended_users = all_users.filter(status='suspended').count()
-
-        # TODO: Need to make this dynamic
-        trial_users = 0
-
-        return Response({
-            'total_users': {
-                'value': total_users,
-                'last_week': last_week_created
-            },
-            'active_users': active_users,
-            'suspended_users': suspended_users,
-            'trial_users': trial_users
-        })
-
+        return Response(get_user_stats())
 
 class UserManagementListAPIView(generics.ListAPIView):
-	permission_classes = [permissions.IsAdminUser]
-	pagination_class = UserListPagination
-	serializer_class = UserAdminViewSerializer
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = UserListPagination
+    serializer_class = UserAdminViewSerializer
 
-
-	def get_queryset(self):
-		q = self.request.query_params.get('search', '')
-		if q!='':
-			return User.objects.filter(
-				Q(email__icontains=q) | Q(full_name__icontains=q)
-				)
-		return User.objects.all()
+    def get_queryset(self):
+        return get_user_list(self.request)
 
 class ChangeUserStatusAPIView(generics.UpdateAPIView):
     permission_classes = [permissions.IsAdminUser]

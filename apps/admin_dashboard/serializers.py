@@ -3,10 +3,17 @@ from apps.accounts.models import User
 from .models import AdminNotificationSettings, AdminReport
 
 class UserAdminViewSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
 
-	class Meta:
-		model = User
-		fields = ['id', 'full_name', 'email', 'status', 'joined_at', 'last_login']
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'role', 'email', 'status', 'joined_at', 'last_login']
+    
+    def get_role(self, obj):
+        if obj.is_staff:
+            return 'Admin'
+        else:
+            return 'User'
 
 
 class AdminNotificationSettingsSerializer(serializers.ModelSerializer):
