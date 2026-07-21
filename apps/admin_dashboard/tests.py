@@ -124,3 +124,53 @@ class AdminDashboardChartTests(APITestCase):
         self.assertEqual(len(data["chart_data"]), 6)
         self.assertEqual(data["chart_data"][-1]["users"], 3)
         self.assertEqual(data["chart_data"][-1]["revenue"], 100.0)
+
+
+class AdminReportTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="admin_reports@example.com",
+            password="adminpassword123",
+            is_staff=True,
+            is_superuser=True
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_generate_report_and_fields(self):
+        url = "/api/v1/admin/generate-report/"
+        payload = {
+            "report_type": "weekly",
+            "included_metrics": ["revenue_overview"]
+        }
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, 202)
+        report_id = res.data["report_id"]
+
+        # Check report list contains the created report with new fields
+        list_url = "/api/v1/admin/reports/"
+        list_res = self.client.get(list_url)
+        self.assertEqual(list_res.status_code, 200)
+        results = list_res.data.get("results", list_res.data)
+        self.assertTrue(len(results) > 0)
+        report_data = results[0]
+        self.assertIn("file_size", report_data)
+        self.assertIn("download_count", report_data)
+        self.assertIn("generated_by", report_data)
+        self.assertEqual(str(report_data["generated_by"]), str(self.admin_user.id))
+
+    def test_report_download_count_increment(self):
+        from apps.admin_dashboard.models import AdminReport
+        report = AdminReport.objects.create(
+            name="Test Report",
+            report_type="weekly",
+            status=AdminReport.Status.COMPLETED,
+            download_count=0
+        )
+        download_url = f"/api/v1/admin/reports/{report.id}/download/"
+        res = self.client.post(download_url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["download_count"], 1)
+
+        report.refresh_from_db()
+        self.assertEqual(report.download_count, 1)
+

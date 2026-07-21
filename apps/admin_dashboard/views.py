@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAdminUser
 from apps.main.serializers import SimpleCampaignSerializer, OrganizationSerializer, CampaignSerializer
 from rest_framework.pagination import PageNumberPagination
 from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
-from django.db.models import Q, Sum, Count
+from django.db.models import Q, Sum, Count, F
 from datetime import timedelta
 from decimal import Decimal
 import calendar
@@ -373,6 +373,7 @@ class GenerateAdminReportView(generics.GenericAPIView):
             included_metrics=included_metrics,
             start_date=start_date,
             end_date=end_date,
+            generated_by=request.user if request.user and request.user.is_authenticated else None,
         )
 
         from .tasks import generate_admin_report_task
@@ -386,6 +387,24 @@ class GenerateAdminReportView(generics.GenericAPIView):
             status=202,
         )
 
+class ReportDownloadCountAPIView(generics.GenericAPIView):
+    """
+    Increment the download count for a specific admin report.
+    This endpoint should be called when an admin downloads a report.
+    """
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, *args, **kwargs):
+        report_id = kwargs.get('report_id')
+        try:
+            report = AdminReport.objects.get(id=report_id)
+        except AdminReport.DoesNotExist:
+            return Response({"error": "Report not found."}, status=404)
+
+        AdminReport.objects.filter(id=report_id).update(download_count=F('download_count') + 1)
+        report.refresh_from_db()
+
+        return Response({"message": "Download count incremented.", "download_count": report.download_count})
 
 class PlatformAnalysisAPIView(generics.GenericAPIView):
     """

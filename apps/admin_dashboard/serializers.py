@@ -26,4 +26,4 @@ class AdminNotificationSettingsSerializer(serializers.ModelSerializer):
 class AdminReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = AdminReport
-        fields = ['id', 'name', 'created_at', 'report_type', 'status', 'included_metrics', 'start_date', 'end_date', 'file']
+        fields = ['id', 'name', 'created_at', 'report_type', 'status', 'included_metrics', 'start_date', 'end_date', 'file', 'file_size', 'download_count', 'generated_by']

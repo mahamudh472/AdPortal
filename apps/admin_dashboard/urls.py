@@ -16,6 +16,7 @@ urlpatterns = [
     path('transactions/', views.TransactionListAPIView.as_view()),
     path('notification-settings/', views.AdminNotificationSettingsAPIView.as_view()),
     path('reports/', views.AdminReportListView.as_view(), name='admin-report-list'),
+    path('reports/<int:report_id>/download/', views.ReportDownloadCountAPIView.as_view(), name='admin-report-detail'),
     path('generate-report/', views.GenerateAdminReportView.as_view(), name='admin-generate-report'),
     path('finance/', views.FinanceOverviewAPIView.as_view(), name='admin-finance-overview'),
     path('platform-analysis/', views.PlatformAnalysisAPIView.as_view(), name='admin-platform-analysis'),

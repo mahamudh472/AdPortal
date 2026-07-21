@@ -107,7 +107,33 @@
 - Example response item:
 
 ```json
-{"id": 12, "name": "Q1 Report", "report_type": "quarterly", "status": "COMPLETED", "included_metrics": ["revenue_overview"], "start_date": "2026-01-01", "end_date": "2026-03-31", "file": "..."}
+{
+	"id": 12,
+	"name": "Q1 Report",
+	"report_type": "quarterly",
+	"status": "COMPLETED",
+	"included_metrics": ["revenue_overview"],
+	"start_date": "2026-01-01",
+	"end_date": "2026-03-31",
+	"file": "...",
+	"file_size": 14520,
+	"download_count": 3,
+	"generated_by": "b8f6c5e2-76a1-432a-92bc-02198d5e12f0"
+}
+```
+
+## `POST /api/v1/admin/reports/<int:report_id>/download/`
+- Purpose: Increment the download count for a specific admin report when downloaded.
+- Path params: `report_id` (integer).
+- Query params: none.
+- Request body: none.
+- Example success response:
+
+```json
+{
+	"message": "Download count incremented.",
+	"download_count": 4
+}
 ```
 
 ## `POST /api/v1/admin/generate-report/`

@@ -298,11 +298,13 @@ def generate_admin_report_task(self, report_id):
 
         excel_file = BytesIO()
         wb.save(excel_file)
-        excel_file.seek(0)
+        content = excel_file.getvalue()
+        file_size = len(content)
 
-        report.file.save(filename, ContentFile(excel_file.read()), save=False)
+        report.file.save(filename, ContentFile(content), save=False)
         report.name = filename
         report.status = AdminReport.Status.COMPLETED
+        report.file_size = file_size
         report.save()
 
         logger.info("Admin report %s generated successfully.", report_id)

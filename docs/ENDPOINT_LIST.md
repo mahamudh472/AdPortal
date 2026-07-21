@@ -114,6 +114,7 @@
 | GET | `/api/v1/admin/transactions/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET, PUT, PATCH | `/api/v1/admin/notification-settings/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/reports/` | [Admin details](./endpoints/admin_dashboard.md) |
+| POST | `/api/v1/admin/reports/<int:report_id>/download/` | [Admin details](./endpoints/admin_dashboard.md) |
 | POST | `/api/v1/admin/generate-report/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/finance/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/platform-analysis/` | [Admin details](./endpoints/admin_dashboard.md) |
