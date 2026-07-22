@@ -4,6 +4,8 @@ from django.utils import timezone
 from datetime import timedelta
 
 def get_user_stats():
+    from apps.admin_dashboard.utils import get_percentage
+    from apps.main.models import OrganizationStatusChoices, OrganizationMember
 
     all_users = User.objects.all()
     total_users = all_users.count()
@@ -12,34 +14,20 @@ def get_user_stats():
     active_users = all_users.filter(is_active=True).count()
     suspended_users = all_users.filter(status='suspended').count()
 
-    # TODO: Need to make this dynamic
-    trial_users = 0
+    # Calculate trial users dynamically (owners or active members of trial organizations)
+    trial_owners = User.objects.filter(owned_organizations__status=OrganizationStatusChoices.TRIAL).values_list('id', flat=True)
+    trial_members = OrganizationMember.objects.filter(organization__status=OrganizationStatusChoices.TRIAL, status='ACTIVE').values_list('user_id', flat=True)
+    trial_user_ids = list(set(trial_owners) | {uid for uid in trial_members if uid is not None})
+    trial_users = User.objects.filter(id__in=trial_user_ids).count()
 
     return {
         'total_users': {
             'value': total_users,
             'last_week': last_week_created,
-            "trend_percentage": "+0%",
-            "trend_direction": "neutral"
         },
-        "active_users": {
-            "value": active_users,
-            "previous_period": 0,
-            "trend_percentage": "+100%",
-            "trend_direction": "up"
-        },
-        "suspended_users": {
-            "value": suspended_users,
-            "previous_period": 0,
-            "trend_percentage": "0%",
-            "trend_direction": "neutral"
-        },
-        "trial_users": {
-            "value": trial_users,
-            "previous_period": 0,
-            "trend_percentage": "0%",
-            "trend_direction": "neutral"
-        }
+        "active_users": active_users,
+        "suspended_users": suspended_users,
+        "trial_users": trial_users
     }
 
 def get_user_list(request):

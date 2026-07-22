@@ -460,7 +460,7 @@ class BillingHistorySerializer(serializers.ModelSerializer):
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ['snowflake_id', 'name', 'website', 'industry', 'company_size']
+        fields = ['snowflake_id', 'name', 'website', 'industry', 'company_size', 'created_at', 'status']
 
 class TeamMemberSerializer(serializers.ModelSerializer):
     user = SimpleUserSerializer(read_only=True)

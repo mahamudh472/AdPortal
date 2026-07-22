@@ -111,6 +111,9 @@
 | GET | `/api/v1/admin/user-management-list/` | [Admin details](./endpoints/admin_dashboard.md) |
 | PUT, PATCH | `/api/v1/admin/user-management/<uuid:id>/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/organizations/` | [Admin details](./endpoints/admin_dashboard.md) |
+| GET | `/api/v1/admin/organizations/stats/` | [Admin details](./endpoints/admin_dashboard.md) |
+| PATCH | `/api/v1/admin/organizations/<str:snowflake_id>/` | [Admin details](./endpoints/admin_dashboard.md) |
+| DELETE | `/api/v1/admin/organizations/<str:snowflake_id>/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/transactions/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET, PUT, PATCH | `/api/v1/admin/notification-settings/` | [Admin details](./endpoints/admin_dashboard.md) |
 | GET | `/api/v1/admin/reports/` | [Admin details](./endpoints/admin_dashboard.md) |

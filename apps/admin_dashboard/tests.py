@@ -174,3 +174,137 @@ class AdminReportTests(APITestCase):
         report.refresh_from_db()
         self.assertEqual(report.download_count, 1)
 
+
+class AdminStatsTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="admin_stats@example.com",
+            password="adminpassword123",
+            is_staff=True,
+            is_superuser=True
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        
+        # Create user 1: active user, joined now
+        self.user1 = User.objects.create(email="user1@example.com", is_active=True, status="active")
+        
+        # Create user 2: suspended user, joined now
+        self.user2 = User.objects.create(email="user2@example.com", is_active=False, status="suspended")
+        
+        # Create user 3: trial user (owner of a trial organization)
+        self.user3 = User.objects.create(email="user3@example.com", is_active=True, status="active")
+        
+        # Create organizations
+        # Org 1: Active, created now
+        self.org1 = Organization.objects.create(name="Active Org", owner=self.user1, status="ACTIVE")
+        
+        # Org 2: Suspended, created now
+        self.org2 = Organization.objects.create(name="Suspended Org", owner=self.user2, status="SUSPENDED")
+        
+        # Org 3: Trial, created now
+        self.org3 = Organization.objects.create(name="Trial Org", owner=self.user3, status="TRIAL")
+
+    def test_organization_stats_api(self):
+        url = "/api/v1/admin/organizations/stats/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        
+        data = res.json()
+        self.assertIn("total_organizations", data)
+        self.assertEqual(data["total_organizations"], 7)
+        
+        # Check active orgs structure and values
+        self.assertIn("active_organizations", data)
+        self.assertEqual(data["active_organizations"]["value"], 5)
+        self.assertEqual(data["active_organizations"]["previous_period"], 0)
+        self.assertEqual(data["active_organizations"]["trend_percentage"], "+100%")
+        self.assertEqual(data["active_organizations"]["trend_direction"], "up")
+        
+        # Check suspended orgs structure
+        self.assertIn("suspended_organizations", data)
+        self.assertEqual(data["suspended_organizations"]["value"], 1)
+        
+        # Check trial orgs structure
+        self.assertIn("trial_organizations", data)
+        self.assertEqual(data["trial_organizations"]["value"], 1)
+
+    def test_user_management_stats_api(self):
+        url = "/api/v1/admin/user-management/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        
+        data = res.json()
+        self.assertIn("total_users", data)
+        # 1 admin user + 3 regular users = 4 total users
+        self.assertEqual(data["total_users"]["value"], 4)
+        
+        # Check flat numbers format
+        self.assertIn("active_users", data)
+        self.assertIn("suspended_users", data)
+        self.assertIn("trial_users", data)
+        
+        # Check specific values
+        self.assertEqual(data["active_users"], 3)
+        self.assertEqual(data["suspended_users"], 1)
+        self.assertEqual(data["trial_users"], 1)
+
+    def test_patch_organization_status(self):
+        url = f"/api/v1/admin/organizations/{self.org1.snowflake_id}/"
+        payload = {"status": "suspended"}
+        res = self.client.patch(url, payload, format="json")
+        self.assertEqual(res.status_code, 200)
+        
+        # Verify response matches
+        data = res.json()
+        self.assertEqual(data["status"], "SUSPENDED")
+        
+        # Verify db updated
+        self.org1.refresh_from_db()
+        self.assertEqual(self.org1.status, "SUSPENDED")
+
+    def test_delete_organization(self):
+        url = f"/api/v1/admin/organizations/{self.org1.snowflake_id}/"
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 204)
+        
+        # Verify deleted from DB
+        self.assertFalse(Organization.objects.filter(snowflake_id=self.org1.snowflake_id).exists())
+
+    def test_patch_organization_status_active(self):
+        # org2 is initially SUSPENDED, patch to active
+        url = f"/api/v1/admin/organizations/{self.org2.snowflake_id}/"
+        payload = {"status": "active"}
+        res = self.client.patch(url, payload, format="json")
+        self.assertEqual(res.status_code, 200)
+        
+        # Verify response matches
+        data = res.json()
+        self.assertEqual(data["status"], "ACTIVE")
+        
+        # Verify DB updated
+        self.org2.refresh_from_db()
+        self.assertEqual(self.org2.status, "ACTIVE")
+
+    def test_organization_list_status_filter(self):
+        # Retrieve suspended organizations
+        url = "/api/v1/admin/organizations/?status=suspended"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        
+        data = res.json()
+        self.assertIn("results", data)
+        results = data["results"]
+        self.assertTrue(len(results) > 0)
+        for org in results:
+            self.assertEqual(org["status"], "SUSPENDED")
+            
+        # Retrieve trial organizations
+        url = "/api/v1/admin/organizations/?status=trial"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        results = res.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Trial Org")
+
+
+

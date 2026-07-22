@@ -38,6 +38,12 @@ class OrganizationRole(models.TextChoices):
     ADMIN = "ADMIN", "Admin"
     MEMBER = "MEMBER", "Member"
 
+
+class OrganizationStatusChoices(models.TextChoices):
+    ACTIVE = 'ACTIVE', 'Active'
+    SUSPENDED = 'SUSPENDED', 'Suspended'
+    TRIAL = 'TRIAL', 'Trial'
+
 class Organization(models.Model):
     INDUSTRY_CHOICES = [
         ('ecommerce', 'E-Commerce'),
@@ -67,6 +73,7 @@ class Organization(models.Model):
     industry = models.CharField(max_length=100, blank=True, null=True, choices=INDUSTRY_CHOICES)
     company_size = models.CharField(max_length=100, blank=True, null=True, choices=COMPANY_SIZE_CHOICES)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_organizations")
+    status = models.CharField(max_length=20, choices=OrganizationStatusChoices.choices, default='ACTIVE')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

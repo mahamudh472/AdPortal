@@ -13,6 +13,8 @@ urlpatterns = [
 	path('user-management-list/', views.UserManagementListAPIView.as_view()),
     path('user-management/<uuid:id>/', views.ChangeUserStatusAPIView.as_view()),
     path('organizations/', views.OrganizationListAPIView.as_view()),
+    path('organizations/stats/', views.AdminOrganizationStatsAPIView.as_view()),
+    path('organizations/<str:snowflake_id>/', views.AdminOrganizationDetailAPIView.as_view()),
     path('transactions/', views.TransactionListAPIView.as_view()),
     path('notification-settings/', views.AdminNotificationSettingsAPIView.as_view()),
     path('reports/', views.AdminReportListView.as_view(), name='admin-report-list'),

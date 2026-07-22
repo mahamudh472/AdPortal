@@ -76,11 +76,66 @@
 	- `400`: invalid status.
 	- `400`: attempting to change superuser status.
 
+## `GET /api/v1/admin/organizations/stats/`
+- Purpose: Retrieve statistics and metrics for organizations by status.
+- Query params: none.
+- Request body: none.
+- Example response:
+
+```json
+{
+	"total_organizations": 10,
+	"active_organizations": {
+		"value": 5,
+		"previous_period": 4,
+		"trend_percentage": "+25.0%",
+		"trend_direction": "up"
+	},
+	"suspended_organizations": {
+		"value": 2,
+		"previous_period": 3,
+		"trend_percentage": "-25.0%",
+		"trend_direction": "down"
+	},
+	"trial_organizations": {
+		"value": 3,
+		"previous_period": 3,
+		"trend_percentage": "0%",
+		"trend_direction": "neutral"
+	}
+}
+```
+
 ## `GET /api/v1/admin/organizations/`
 - Purpose: List organizations.
-- Query params: `search`, `page`, `page_size`.
+- Query params: `search` (optional), `status` (optional), `page`, `page_size`.
 - Request body: none.
 - Example response: DRF paginated organization list.
+
+## `PATCH /api/v1/admin/organizations/<str:snowflake_id>/`
+- Purpose: Update the status of a specific organization.
+- Path params: `snowflake_id` (string).
+- Request body:
+```json
+{
+	"status": "suspended"
+}
+```
+- Allowed statuses: `active`, `suspended`, `trial` (case-insensitive).
+- Example success response:
+```json
+{
+	"message": "Organization status updated to SUSPENDED successfully.",
+	"status": "SUSPENDED"
+}
+```
+
+## `DELETE /api/v1/admin/organizations/<str:snowflake_id>/`
+- Purpose: Delete a specific organization.
+- Path params: `snowflake_id` (string).
+- Request body: none.
+- Example response: `204 No Content`.
+
 
 ## `GET /api/v1/admin/transactions/`
 - Purpose: List payments/transactions.

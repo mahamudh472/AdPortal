@@ -3,7 +3,7 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from apps.accounts.models import User, ContactUsMessage
 from apps.accounts.serializers import ContactUsMessageSerializer
-from apps.main.models import UnifiedCampaign, Organization, OrganizationMember
+from apps.main.models import UnifiedCampaign, Organization, OrganizationMember, OrganizationStatusChoices
 from rest_framework.permissions import IsAdminUser
 from apps.main.serializers import SimpleCampaignSerializer, OrganizationSerializer, CampaignSerializer
 from rest_framework.pagination import PageNumberPagination
@@ -23,6 +23,7 @@ from .services.dashboard import (
     get_revenue_card_data, get_system_status
 )
 from .services.user_management import get_user_list, get_user_stats
+from .services.organization_management import get_active_organizations, get_suspended_organizations, get_trial_organizations
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -222,16 +223,65 @@ class OrganizationListPagination(PageNumberPagination):
     max_page_size = 100
     page_size = 10
 
+class AdminOrganizationStatsAPIView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        total_organizations = Organization.objects.count()
+
+        return Response({
+            'total_organizations': total_organizations,
+            'active_organizations': get_active_organizations(),
+            'suspended_organizations': get_suspended_organizations(),
+            'trial_organizations': get_trial_organizations(),
+        })
+
 class OrganizationListAPIView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminUser]
     pagination_class = OrganizationListPagination
     serializer_class = OrganizationSerializer
 
     def get_queryset(self):
+        queryset = Organization.objects.order_by('-created_at')
+        
+        # Search filter
         q = self.request.query_params.get('search', '')
         if q != '':
-            return Organization.objects.filter(name__icontains=q)
-        return Organization.objects.all()
+            queryset = queryset.filter(name__icontains=q)
+            
+        # Status filter
+        status = self.request.query_params.get('status', '')
+        if status != '':
+            queryset = queryset.filter(status=status.upper())
+            
+        return queryset
+
+class AdminOrganizationDetailAPIView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    queryset = Organization.objects.all()
+    lookup_field = 'snowflake_id'
+
+    def patch(self, request, *args, **kwargs):
+        organization = self.get_object()
+        status = request.data.get('status')
+        if not status:
+            return Response({'error': 'Status is required.'}, status=400)
+
+        status_upper = status.upper()
+        if status_upper not in OrganizationStatusChoices.values:
+            return Response({'error': f'Invalid status. Allowed values: {OrganizationStatusChoices.values}'}, status=400)
+
+        organization.status = status_upper
+        organization.save()
+        return Response({
+            'message': f'Organization status updated to {status_upper} successfully.',
+            'status': organization.status
+        }, status=200)
+
+    def delete(self, request, *args, **kwargs):
+        organization = self.get_object()
+        organization.delete()
+        return Response(status=204)
 
 class TransactionListPagination(PageNumberPagination):
     max_page_size = 100
