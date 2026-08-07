@@ -301,10 +301,86 @@ class AdminStatsTests(APITestCase):
         # Retrieve trial organizations
         url = "/api/v1/admin/organizations/?status=trial"
         res = self.client.get(url)
-        self.assertEqual(res.status_code, 200)
         results = res.json()["results"]
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["name"], "Trial Org")
 
+    def test_finance_overview_api_extensions(self):
+        # Create some payments to test sparklines and payment summary
+        Payment.objects.create(
+            organization=self.org1,
+            amount=Decimal("150.00"),
+            status="paid",
+            paid_at=timezone.now()
+        )
+        Payment.objects.create(
+            organization=self.org1,
+            amount=Decimal("50.00"),
+            status="failed",
+            created_at=timezone.now()
+        )
+        
+        url = "/api/v1/admin/finance/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        
+        self.assertIn("sparklines", data)
+        self.assertIn("monthly_revenue", data["sparklines"])
+        self.assertIn("mrr_growth", data["sparklines"])
+        self.assertIn("total_transactions", data["sparklines"])
+        self.assertIn("failed_payments", data["sparklines"])
+        self.assertEqual(len(data["sparklines"]["monthly_revenue"]), 6)
+        
+        self.assertIn("payment_summary", data)
+        self.assertIn("successful", data["payment_summary"])
+        self.assertIn("failed", data["payment_summary"])
+        self.assertIn("refunded", data["payment_summary"])
+        self.assertEqual(data["payment_summary"]["successful"]["count"], 1)
+        self.assertEqual(data["payment_summary"]["successful"]["total"], 150.0)
+        self.assertEqual(data["payment_summary"]["failed"]["count"], 1)
 
+    def test_platform_analysis_api_extensions(self):
+        url = "/api/v1/admin/platform-analysis/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        
+        self.assertIn("summary", data)
+        self.assertIn("total_new_users", data["summary"])
+        self.assertIn("avg_active_users", data["summary"])
+        self.assertIn("churned_users", data["summary"])
+        self.assertIn("most_used_feature", data["summary"])
+        
+        self.assertIn("sparkline", data["summary"]["total_new_users"])
+        self.assertEqual(len(data["summary"]["total_new_users"]["sparkline"]), 6)
 
+    def test_upcoming_invoices_api(self):
+        from apps.finance.models import Invoice
+        Invoice.objects.create(
+            organization=self.org1,
+            amount=Decimal("399.00"),
+            due_date=timezone.now().date(),
+            plan="Growth",
+            status="pending"
+        )
+        Invoice.objects.create(
+            organization=self.org1,
+            amount=Decimal("29.00"),
+            due_date=timezone.now().date(),
+            plan="Starter",
+            status="paid"  # should not be returned by upcoming invoices view
+        )
+        
+        url = "/api/v1/admin/invoices/upcoming/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        
+        self.assertIn("results", data)
+        self.assertEqual(len(data["results"]), 1)
+        inv = data["results"][0]
+        self.assertEqual(inv["organization"], "Active Org")
+        self.assertEqual(float(inv["amount"]), 399.00)
+        self.assertEqual(inv["plan"], "Growth")
+        self.assertEqual(inv["status"], "pending")

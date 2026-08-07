@@ -22,6 +22,7 @@ urlpatterns = [
     path('generate-report/', views.GenerateAdminReportView.as_view(), name='admin-generate-report'),
     path('finance/', views.FinanceOverviewAPIView.as_view(), name='admin-finance-overview'),
     path('platform-analysis/', views.PlatformAnalysisAPIView.as_view(), name='admin-platform-analysis'),
+    path('invoices/upcoming/', views.UpcomingInvoicesAPIView.as_view(), name='admin-upcoming-invoices'),
 ]
 urlpatterns += router.urls
 

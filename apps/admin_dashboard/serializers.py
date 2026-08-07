@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from apps.accounts.models import User
 from .models import AdminNotificationSettings, AdminReport
+from apps.finance.models import Invoice
 
 class UserAdminViewSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
@@ -27,3 +28,12 @@ class AdminReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = AdminReport
         fields = ['id', 'name', 'created_at', 'report_type', 'status', 'included_metrics', 'start_date', 'end_date', 'file', 'file_size', 'download_count', 'generated_by']
+
+
+class UpcomingInvoiceSerializer(serializers.ModelSerializer):
+    organization = serializers.CharField(source='organization.name')
+
+    class Meta:
+        model = Invoice
+        fields = ['id', 'organization', 'amount', 'due_date', 'plan', 'status']
+

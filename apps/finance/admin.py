@@ -1,6 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from .models import Plan, PlanFeature, Subscription, Payment, UsageRecord
+from .models import Plan, PlanFeature, Subscription, Payment, UsageRecord, Invoice
 
 @admin.register(Plan)
 class PlanAdmin(ModelAdmin):
@@ -31,3 +31,11 @@ class PaymentAdmin(ModelAdmin):
 @admin.register(UsageRecord)
 class UsageRecordAdmin(ModelAdmin):
     pass
+
+@admin.register(Invoice)
+class InvoiceAdmin(ModelAdmin):
+    list_display = ('organization', 'amount', 'due_date', 'plan', 'status', 'created_at')
+    search_fields = ('organization__name', 'plan', 'status')
+    list_filter = ('status', 'due_date')
+    date_hierarchy = 'due_date'
+

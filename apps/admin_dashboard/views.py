@@ -7,7 +7,7 @@ from apps.main.models import UnifiedCampaign, Organization, OrganizationMember, 
 from rest_framework.permissions import IsAdminUser
 from apps.main.serializers import SimpleCampaignSerializer, OrganizationSerializer, CampaignSerializer
 from rest_framework.pagination import PageNumberPagination
-from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer
+from .serializers import AdminNotificationSettingsSerializer, UserAdminViewSerializer, AdminReportSerializer, UpcomingInvoiceSerializer
 from django.db.models import Q, Sum, Count, F
 from datetime import timedelta
 from decimal import Decimal
@@ -15,7 +15,7 @@ import calendar
 from django.utils import timezone
 from .models import AdminNotificationSettings, AdminReport
 from apps.finance.serializers import PaymentSerializer
-from apps.finance.models import Payment, Subscription, Plan
+from apps.finance.models import Payment, Subscription, Plan, Invoice
 from rest_framework import viewsets
 from .services.dashboard import (
     get_users_card_data, get_campaigns_card_data,
@@ -24,6 +24,8 @@ from .services.dashboard import (
 )
 from .services.user_management import get_user_list, get_user_stats
 from .services.organization_management import get_active_organizations, get_suspended_organizations, get_trial_organizations
+from .services.finance import get_finance_overview_data
+from .services.platform_analysis import get_platform_analysis_data
 
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
@@ -48,102 +50,10 @@ class FinanceOverviewAPIView(generics.GenericAPIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, *args, **kwargs):
-        now = timezone.now()
-
-        # ── Current & last month boundaries ──────────────────────────────────
-        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_month_end = current_month_start
-        # Go back one month
-        last_month_start = (current_month_start - timedelta(days=1)).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-
-        # ── Monthly revenue (current month, paid payments) ────────────────────
-        monthly_revenue = (
-            Payment.objects.filter(status='paid', paid_at__gte=current_month_start)
-            .aggregate(total=Sum('amount'))['total']
-            or Decimal('0')
-        )
-
-        # ── MRR growth (%) vs previous month ─────────────────────────────────
-        last_month_revenue = (
-            Payment.objects.filter(
-                status='paid',
-                paid_at__gte=last_month_start,
-                paid_at__lt=last_month_end,
-            )
-            .aggregate(total=Sum('amount'))['total']
-            or Decimal('0')
-        )
-
-        if last_month_revenue == 0:
-            mrr_growth = 100.0 if monthly_revenue > 0 else 0.0
-        else:
-            mrr_growth = round(
-                float((monthly_revenue - last_month_revenue) / last_month_revenue * 100), 2
-            )
-
-        # ── Total transactions & failed payments ─────────────────────────────
-        total_transactions = Payment.objects.count()
-        failed_payments = Payment.objects.filter(status='failed').count()
-
-        # ── Revenue overview – last 6 calendar months ─────────────────────────
-        revenue_overview = {}
-        current_year = now.year
-        current_month = now.month
-
-        for i in range(5, -1, -1):  # 5 months ago → current month
-            month_num = current_month - i
-            year = current_year
-            while month_num <= 0:
-                month_num += 12
-                year -= 1
-
-            _, last_day = calendar.monthrange(year, month_num)
-            month_start = now.replace(
-                year=year, month=month_num, day=1,
-                hour=0, minute=0, second=0, microsecond=0,
-            )
-            month_end = month_start.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
-
-            month_name = month_start.strftime('%b')
-            month_revenue = (
-                Payment.objects.filter(
-                    status='paid',
-                    paid_at__gte=month_start,
-                    paid_at__lte=month_end,
-                )
-                .aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
-            )
-            revenue_overview[month_name] = float(month_revenue)
-
-        # ── Revenue by plan ───────────────────────────────────────────────────
-        revenue_by_plan = {}
-        for plan in Plan.objects.filter(is_active=True):
-            subscribers = Subscription.objects.filter(
-                plan=plan, status__in=['active', 'trialing']
-            ).count()
-
-            plan_revenue = (
-                Payment.objects.filter(status='paid', subscription__plan=plan)
-                .aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
-            )
-
-            revenue_by_plan[plan.name] = {
-                'subscribers': subscribers,
-                'revenue': float(plan_revenue),
-            }
-
-        return Response({
-            'monthly_revenue': float(monthly_revenue),
-            'mrr_growth': mrr_growth,
-            'total_transactions': total_transactions,
-            'failed_payments': failed_payments,
-            'revenue_overview': revenue_overview,
-            'revenue_by_plan': revenue_by_plan,
-        })
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        data = get_finance_overview_data(start_date=start_date, end_date=end_date)
+        return Response(data)
 
 
 class CampaignListPagination(PageNumberPagination):
@@ -465,79 +375,19 @@ class PlatformAnalysisAPIView(generics.GenericAPIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, *args, **kwargs):
-        from apps.analysis.models import AnalysisDaily, Report
+        data = get_platform_analysis_data()
+        return Response(data)
 
-        now = timezone.now()
-        current_year = now.year
-        current_month = now.month
+class UpcomingInvoicePagination(PageNumberPagination):
+    max_page_size = 100
+    page_size = 10
+    page_size_query_param = "page_size"
 
-        # ── User Growth (last 6 months) ───────────────────────────────────────
-        user_growth = []
-        for i in range(5, -1, -1):  # 5 months ago → current month
-            month_num = current_month - i
-            year = current_year
-            while month_num <= 0:
-                month_num += 12
-                year -= 1
-
-            _, last_day = calendar.monthrange(year, month_num)
-            month_start = now.replace(
-                year=year, month=month_num, day=1,
-                hour=0, minute=0, second=0, microsecond=0,
-            )
-            month_end = month_start.replace(
-                day=last_day, hour=23, minute=59, second=59, microsecond=999999
-            )
-
-            new_users = User.objects.filter(
-                joined_at__gte=month_start, joined_at__lte=month_end
-            ).count()
-            active_users = User.objects.filter(
-                last_login__gte=month_start, last_login__lte=month_end
-            ).count()
-
-            user_growth.append({
-                'month': month_start.strftime('%b'),
-                'new_users': new_users,
-                'active_users': active_users,
-            })
-
-        # ── Feature Usage ─────────────────────────────────────────────────────
-        total_orgs = Organization.objects.count()
-
-        def usage_pct(count):
-            if total_orgs == 0:
-                return 0.0
-            return round((count / total_orgs) * 100, 1)
-
-        orgs_with_campaigns = (
-            UnifiedCampaign.objects.values('organization').distinct().count()
-        )
-        orgs_with_analytics = (
-            AnalysisDaily.objects.values('organization').distinct().count()
-        )
-        orgs_with_reports = (
-            Report.objects.values('organization').distinct().count()
-        )
-        # Orgs that have more than one member = team collaboration enabled
-        orgs_with_teams = (
-            OrganizationMember.objects
-            .values('organization')
-            .annotate(cnt=Count('id'))
-            .filter(cnt__gt=1)
-            .count()
-        )
-        feature_usage = [
-            {'feature': 'Campaign Creation', 'usage': usage_pct(orgs_with_campaigns)},
-            {'feature': 'Analytics', 'usage': usage_pct(orgs_with_analytics)},
-            {'feature': 'Reports', 'usage': usage_pct(orgs_with_reports)},
-            {'feature': 'Team Collaboration', 'usage': usage_pct(orgs_with_teams)},
-        ]
-
-        return Response({
-            'user_growth': user_growth,
-            'feature_usage': feature_usage,
-        })
+class UpcomingInvoicesAPIView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = UpcomingInvoicePagination
+    serializer_class = UpcomingInvoiceSerializer
+    queryset = Invoice.objects.filter(status='pending').order_by('due_date')
 class ContactUsMessagePagination(PageNumberPagination):
     max_page_size = 100
     page_size = 10
