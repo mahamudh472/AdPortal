@@ -1,9 +1,8 @@
 from apps.main.utils.helper import get_dashboard_data, get_analytics_data
 
 class DashboardService:
-    def get_dashboard_data(self, organization):
-        
-        return get_dashboard_data(organization.snowflake_id)
+    def get_dashboard_data(self, organization, **kwargs):
+        return get_dashboard_data(organization.snowflake_id, **kwargs)
 
     def get_analytics_data(self, snowflake_id):
         return get_analytics_data(snowflake_id)

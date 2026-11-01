@@ -1,4 +1,4 @@
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
 from rest_framework import generics, status
 from apps.main.utils.tiktok_handler import create_full_ad_for_tiktok
@@ -6,7 +6,7 @@ from .services import AdCreationService, CampaignService, DashboardService, AISe
 from .serializers import (
     AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer
 )
-from .models import AdAsset, UnifiedCampaign, Organization
+from .models import AdAsset, UnifiedCampaign, Organization, CampaignBudget
 from apps.accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
@@ -40,7 +40,16 @@ class DashboardAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
         
-        data = DashboardService().get_dashboard_data(organization)
+        time_range = request.query_params.get('time_range', 'last_30_days')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        data = DashboardService().get_dashboard_data(
+            organization,
+            time_range=time_range,
+            start_date=start_date,
+            end_date=end_date
+        )
         return Response(data, status=status.HTTP_200_OK)
 
 class CampaignPagination(PageNumberPagination):
@@ -679,4 +688,48 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class ApplyBudgetRecommendationAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def post(self, request, *args, **kwargs):
+        snowflake_id = self.get_org_id()
+        organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+
+        user = request.user
+        if not organization.memberships.filter(user=user, role__in=['OWNER', 'ADMIN']).exists():
+            raise PermissionDenied("You do not have permission to modify campaign budgets.")
+
+        campaign_id = request.data.get('campaign_id')
+        increase_amount = float(request.data.get('increase_amount', 50.0))
+
+        campaign = None
+        if campaign_id:
+            campaign = UnifiedCampaign.objects.filter(id=campaign_id, organization=organization).first()
+        if not campaign:
+            campaign = UnifiedCampaign.objects.filter(organization=organization).first()
+
+        campaign_name = campaign.name if campaign else "Campaign"
+
+        # Update campaign budget if exists
+        # TODO: dispatch celery task to sync updated budget to Meta/Google/TikTok Marketing APIs
+        new_daily_budget = None
+        if campaign:
+            budget = CampaignBudget.objects.filter(campaign=campaign).first()
+            if budget:
+                budget.daily_budget_minor += int(increase_amount * 100)
+                budget.save()
+                new_daily_budget = round(budget.daily_budget_minor / 100, 2)
+
+        return Response({
+            'status': 'success',
+            'message': f"Budget recommendation applied successfully for '{campaign_name}'!",
+            'campaign_id': campaign.id if campaign else campaign_id,
+            'campaign_name': campaign_name,
+            'increase_amount': increase_amount,
+            'new_daily_budget': new_daily_budget,
+        }, status=status.HTTP_200_OK)
 

@@ -28,6 +28,7 @@ urlpatterns = [
     path('accept-invitation/<str:token>/', views.InvitationAcceptAPIView.as_view()),
 
 
+    path('apply-budget-recommendation/', views.ApplyBudgetRecommendationAPIView.as_view()),
     path('sync-ads/', views.SyncAdsAPIView.as_view()),
     path('sync-analytics/', views.SyncAnalyticsAPIView.as_view()),
 

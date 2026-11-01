@@ -56,6 +56,7 @@
 | Method | Full Path | Details |
 |---|---|---|
 | GET | `/api/v1/main/dashboard/` | [Main details](./endpoints/main.md) |
+| POST | `/api/v1/main/apply-budget-recommendation/` | [Main details](./endpoints/main.md) |
 | GET, PUT, PATCH | `/api/v1/main/organization/` | [Main details](./endpoints/main.md) |
 | GET | `/api/v1/main/integrations-status/` | [Main details](./endpoints/main.md) |
 | GET | `/api/v1/main/campaigns/` | [Main details](./endpoints/main.md) |

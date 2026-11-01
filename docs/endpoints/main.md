@@ -10,9 +10,30 @@
 ## Organization and Dashboard
 
 ### `GET /api/v1/main/dashboard/`
-- Query params: `org_id`.
+- Query params: `org_id` (required), `time_range` (`last_7_days`, `last_30_days`, `this_month`, `last_month`, `all_time`), `start_date`, `end_date`.
 - Request body: none.
-- Response: dashboard summary object.
+- Response: comprehensive dynamic dashboard payload containing `date_range`, `platform_cards`, `overview_metrics`, `chart_data`, `top_campaigns`, `ai_insights`, `budget_recommendation`, as well as legacy summary fields.
+
+### `POST /api/v1/main/apply-budget-recommendation/`
+- Query params: `org_id` (required).
+- Request body:
+```json
+{
+  "campaign_id": 12,
+  "increase_amount": 50.0
+}
+```
+- Response:
+```json
+{
+  "status": "success",
+  "message": "Budget recommendation applied successfully for 'Summer Sale 2024'!",
+  "campaign_id": 12,
+  "campaign_name": "Summer Sale 2024",
+  "increase_amount": 50.0,
+  "new_daily_budget": 550.0
+}
+```
 
 ### `GET /api/v1/main/organization/`
 - Query params: `org_id`.

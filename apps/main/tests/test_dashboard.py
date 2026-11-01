@@ -16,6 +16,30 @@ class DashboardTests(MainTestBase):
     def test_dashboard_returns_200(self):
         res = self.client.get(self._url(), {"org_id": self.org_id})
         self.assertEqual(res.status_code, 200)
+        # Verify dynamic dashboard structure
+        self.assertIn("platform_cards", res.data)
+        self.assertIn("overview_metrics", res.data)
+        self.assertIn("chart_data", res.data)
+        self.assertIn("top_campaigns", res.data)
+        self.assertIn("ai_insights", res.data)
+        self.assertIn("budget_recommendation", res.data)
+        self.assertIn("date_range", res.data)
+        self.assertEqual(len(res.data["platform_cards"]), 5)
+        self.assertEqual(len(res.data["overview_metrics"]), 5)
+
+    def test_dashboard_date_filter_returns_200(self):
+        res = self.client.get(self._url(), {
+            "org_id": self.org_id,
+            "time_range": "last_7_days"
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["date_range"]["selected"], "last_7_days")
+
+    def test_apply_budget_recommendation(self):
+        url = "/api/v1/main/apply-budget-recommendation/"
+        res = self.client.post(f"{url}?org_id={self.org_id}", {"increase_amount": 50})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["status"], "success")
 
     def test_dashboard_invalid_org_returns_400(self):
         res = self.client.get(self._url(), {"org_id": "bad_id_000"})
