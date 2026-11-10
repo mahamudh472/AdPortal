@@ -5,7 +5,7 @@ Tests for analysis/reporting endpoints:
 """
 from unittest.mock import patch
 
-from apps.analysis.models import Report
+from apps.analysis.models import AnalysisDaily, Report
 from apps.analysis.tests.base import AnalysisTestBase
 
 BASE = "/api/v1/analysis"
@@ -144,3 +144,81 @@ class GenerateReportTests(AnalysisTestBase):
         self.client.credentials()
         res = self.client.post(self._url(), {"report_type": "weekly"}, format="json")
         self.assertEqual(res.status_code, 401)
+
+
+class ReportListFilterTests(AnalysisTestBase):
+    def test_report_rows_expose_dates_and_status(self):
+        self.create_report("weekly")
+        res = self.client.get(f"{BASE}/reports/", {"org_id": self.org_id})
+        row = res.data["results"][0]
+        self.assertIn("start_date", row)
+        self.assertIn("end_date", row)
+        self.assertEqual(row["status"], "COMPLETED")
+
+    def test_filter_by_report_type(self):
+        self.create_report("weekly")
+        self.create_report("monthly")
+        res = self.client.get(f"{BASE}/reports/", {"org_id": self.org_id, "report_type": "monthly"})
+        self.assertEqual(res.data["count"], 1)
+        self.assertEqual(res.data["results"][0]["report_type"], "monthly")
+
+
+class ReportInsightsTests(AnalysisTestBase):
+    def test_empty_org_returns_zero_totals(self):
+        res = self.client.get(f"{BASE}/report-insights/", {"org_id": self.org_id})
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.data["top_campaign"])
+        self.assertEqual(res.data["total_spend"], 0)
+        self.assertEqual(res.data["total_impressions"], 0)
+
+    def test_totals_and_top_campaign(self):
+        from datetime import date
+
+        from apps.main.models import UnifiedCampaign
+
+        campaign = UnifiedCampaign.objects.create(
+            organization=self.org, name="Best", status="ACTIVE", objective="TRAFFIC"
+        )
+        AnalysisDaily.objects.create(
+            organization=self.org, unified_campaign=campaign, platform="META", account_id="a",
+            campaign_id="c", adgroup_id="g", date=date.today(), impressions=2000, clicks=100,
+            spend=50.0, ctr=5, cpc=0.5, conversions=4, cpa=12.5, roas=3.0,
+        )
+        res = self.client.get(f"{BASE}/report-insights/", {"org_id": self.org_id})
+        self.assertEqual(res.data["top_campaign"], {"name": "Best", "roas": 3.0})
+        self.assertEqual(res.data["total_spend"], 50.0)
+        self.assertEqual(res.data["total_impressions"], 2000)
+        self.assertEqual(res.data["conversion_rate"], 4.0)
+
+    def test_invalid_date_returns_400(self):
+        res = self.client.get(f"{BASE}/report-insights/", {"org_id": self.org_id, "start_date": "nope"})
+        self.assertEqual(res.status_code, 400)
+
+
+class ScheduledReportTests(AnalysisTestBase):
+    def test_defaults_are_seeded_once(self):
+        res = self.client.get(f"{BASE}/scheduled-reports/", {"org_id": self.org_id})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["count"], 3)
+        res = self.client.get(f"{BASE}/scheduled-reports/", {"org_id": self.org_id})
+        self.assertEqual(res.data["count"], 3)
+
+    def test_toggle_persists(self):
+        first = self.client.get(f"{BASE}/scheduled-reports/", {"org_id": self.org_id}).data["results"][0]
+        res = self.client.patch(
+            f"{BASE}/scheduled-reports/{first['id']}/?org_id={self.org_id}", {"enabled": False}, format="json"
+        )
+        self.assertEqual(res.status_code, 200)
+        rows = self.client.get(f"{BASE}/scheduled-reports/", {"org_id": self.org_id}).data["results"]
+        self.assertFalse(next(r for r in rows if r["id"] == first["id"])["enabled"])
+
+    def test_cannot_toggle_other_orgs_schedule(self):
+        first = self.client.get(f"{BASE}/scheduled-reports/", {"org_id": self.org_id}).data["results"][0]
+        other_owner = self.create_user(email="sched_other@example.com")
+        other_org = self.create_organization(other_owner)
+        self.authenticate(other_owner)
+        res = self.client.patch(
+            f"{BASE}/scheduled-reports/{first['id']}/?org_id={other_org.snowflake_id}",
+            {"enabled": False}, format="json",
+        )
+        self.assertEqual(res.status_code, 404)

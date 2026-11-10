@@ -11,12 +11,22 @@ from apps.accounts.notifications import notify_user, notify_org_members
 
 class TeamService:
     def get_team_stats(self, organization):
-        return OrganizationMember.objects.filter(organization=organization).aggregate(
+        from datetime import timedelta
+        from django.utils import timezone
+
+        stats = OrganizationMember.objects.filter(organization=organization).aggregate(
             total_members=models.Count('id'),
             active_members=models.Count('id', filter=models.Q(user__is_active=True)),
             inactive_members=models.Count('id', filter=models.Q(user__is_active=False)),
-            pending_invitations=models.Count('id', filter=models.Q(status='PENDING'))
         )
+        # Invitations are stored separately from members until they are accepted
+        # (and expire after 7 days, see TeamInvitation.is_expired).
+        stats['pending_invitations'] = TeamInvitation.objects.filter(
+            organization=organization,
+            status='PENDING',
+            created_at__gte=timezone.now() - timedelta(days=7),
+        ).count()
+        return stats
 
     def get_team_members_queryset(self, organization):
         return OrganizationMember.objects.filter(organization=organization).select_related('user')

@@ -9,8 +9,10 @@ from apps.main.models import (
     Ad,
     AdAsset,
     PlatformSyncEvent,
+    AIOptimizationSettings,
 )
 from rest_framework import serializers
+from datetime import timedelta
 from django.db import models
 from apps.finance.models import Payment
 from apps.analysis.models import AnalysisDaily
@@ -63,10 +65,30 @@ class TempCampaignSerializer(serializers.ModelSerializer):
     conversions = serializers.IntegerField(source='_conversions', read_only=True)
     ctr = serializers.SerializerMethodField()
     roas = serializers.SerializerMethodField()
-    
+    ctr_trend = serializers.SerializerMethodField()
+    conversions_trend = serializers.SerializerMethodField()
+    roas_trend = serializers.SerializerMethodField()
+    sparkline_data = serializers.SerializerMethodField()
+
     class Meta:
         model = UnifiedCampaign
         fields = '__all__'
+
+    def _extras(self, obj):
+        # Populated per page by CampaignListAPIView.paginate_queryset (one query per page).
+        return (self.context.get('campaign_extras') or {}).get(obj.id, {})
+
+    def get_ctr_trend(self, obj):
+        return self._extras(obj).get('ctr_trend')
+
+    def get_conversions_trend(self, obj):
+        return self._extras(obj).get('conversions_trend')
+
+    def get_roas_trend(self, obj):
+        return self._extras(obj).get('roas_trend')
+
+    def get_sparkline_data(self, obj):
+        return self._extras(obj).get('sparkline_data') or []
 
     def get_platforms(self, obj):
         if obj.status == 'DRAFT':
@@ -99,6 +121,7 @@ class CampaignSerializer(serializers.ModelSerializer):
     budgets = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
     platform_sync_statuses = serializers.SerializerMethodField()
+    placements = serializers.SerializerMethodField()
 
     class Meta:
         model = UnifiedCampaign
@@ -106,8 +129,12 @@ class CampaignSerializer(serializers.ModelSerializer):
             'id', 'name', 'objective', 'platforms', 'matrics', 'ads', 
             'audience_targeting', 'status', 'created_at', 'ai_insights', 
             'total_budget', 'total_spent', 'remaining_budget', 'budgets', 'file_url',
-            'platform_sync_statuses'
+            'platform_sync_statuses', 'placements'
         ]
+
+    def get_placements(self, obj):
+        from apps.main.utils.user_pages import get_campaign_placements
+        return get_campaign_placements(obj)
 
     def validate_objective(self, value):
         if self.instance and self.instance.status != 'DRAFT' and self.instance.objective != value:
@@ -438,7 +465,9 @@ class AICopyRequestSerializer(serializers.Serializer):
     product = serializers.CharField(max_length=200)
     audience = serializers.CharField(max_length=200)
     benefits = serializers.CharField()
-    tone = serializers.ChoiceField(choices=['Professional', 'Casual', 'Friendly'])
+    tone = serializers.ChoiceField(
+        choices=['Professional', 'Persuasive', 'Friendly', 'Urgent', 'Casual', 'Creative']
+    )
     copy_type = serializers.ChoiceField(choices=['Headlines', 'Primary Text', 'Descriptions', 'CTAs'])
 
 class AIAdCopySerializer(serializers.Serializer):
@@ -448,14 +477,42 @@ class AIAdCopySerializer(serializers.Serializer):
     tone = serializers.CharField(max_length=50)
 
 class BillingHistorySerializer(serializers.ModelSerializer):
-    invoice_url = serializers.SerializerMethodField()
+    """Row of the Subscription & Billing → Billing History table."""
+    date = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    period = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    has_invoice = serializers.SerializerMethodField()
+
     class Meta:
         model = Payment
-        fields =['amount', 'status', 'paid_at', 'invoice_url']
-    
-    def get_invoice_url(self, obj):
-        # TODO: Replace with actual logic to generate invoice URL
-        return f"https://billing.example.com/invoices/{obj.id}"
+        fields = ['id', 'date', 'description', 'period', 'amount', 'currency', 'status', 'paid_at', 'has_invoice']
+
+    def get_date(self, obj):
+        return obj.paid_at or obj.created_at
+
+    def _interval(self, obj):
+        plan = obj.subscription.plan if obj.subscription and obj.subscription.plan else None
+        return plan.interval if plan else 'month'
+
+    def get_description(self, obj):
+        plan = obj.subscription.plan if obj.subscription and obj.subscription.plan else None
+        name = plan.get_name_display() if plan else 'Subscription'
+        label = 'Yearly' if self._interval(obj) == 'year' else 'Monthly'
+        return f"{name} Plan - {label} Subscription"
+
+    def get_period(self, obj):
+        start = obj.paid_at or obj.created_at
+        if not start:
+            return None
+        end = start + (timedelta(days=365) if self._interval(obj) == 'year' else timedelta(days=30))
+        return {'start': start, 'end': end}
+
+    def get_status(self, obj):
+        return obj.get_status_display()
+
+    def get_has_invoice(self, obj):
+        return bool(obj.stripe_invoice_id)
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -465,9 +522,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
 class TeamMemberSerializer(serializers.ModelSerializer):
     user = SimpleUserSerializer(read_only=True)
     status = serializers.ChoiceField(choices=[('PENDING', 'Pending'), ('ACTIVE', 'Active'), ('REJECTED', 'Rejected')], default='PENDING', read_only=True)
+    joined_at = serializers.DateTimeField(source='user.joined_at', read_only=True, default=None)
+    last_active_at = serializers.DateTimeField(source='user.last_login', read_only=True, default=None)
+
     class Meta:
         model = OrganizationMember
-        fields = ['id', 'user', 'role', 'status']
+        fields = ['id', 'user', 'role', 'status', 'joined_at', 'last_active_at']
 
 class TeamMemberInviteSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -477,3 +537,63 @@ class AIInsightSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIInsight
         fields = ['id', 'title', 'description', 'created_at', 'impact']
+
+
+class AIInsightDetailSerializer(AIInsightSerializer):
+    """Insight row for the AI Tools → Optimization list."""
+    metrics = serializers.SerializerMethodField()
+    campaigns_count = serializers.SerializerMethodField()
+    campaign_name = serializers.CharField(source='campaign.name', read_only=True)
+    action_text = serializers.SerializerMethodField()
+    action_type = serializers.SerializerMethodField()
+
+    class Meta(AIInsightSerializer.Meta):
+        fields = AIInsightSerializer.Meta.fields + [
+            'campaign', 'campaign_name', 'metrics', 'campaigns_count', 'action_text', 'action_type',
+        ]
+
+    # TODO: the insight model does not store a structured recommendation yet, so the
+    # action is derived from the impact level. Replace with the action the AI engine
+    # actually recommends once ``run_optimization_analysis`` persists it.
+    _ACTIONS = {
+        'HIGH': ('Apply Suggestion', 'apply'),
+        'MEDIUM': ('Fix with AI', 'fix'),
+        'LOW': ('Generate Suggestions', 'generate'),
+    }
+
+    def get_action_text(self, obj):
+        return self._ACTIONS.get(obj.impact, ('No Action Needed', 'none'))[0]
+
+    def get_action_type(self, obj):
+        return self._ACTIONS.get(obj.impact, ('No Action Needed', 'none'))[1]
+
+    def get_campaigns_count(self, obj):
+        counts = self.context.get('campaigns_per_title') or {}
+        return counts.get(obj.title, 1)
+
+    def get_metrics(self, obj):
+        """Current CTR / CPC of the campaign the insight was raised for (last 30 days)."""
+        metrics_by_campaign = self.context.get('campaign_metrics') or {}
+        m = metrics_by_campaign.get(obj.campaign_id)
+        if not m:
+            return []
+        return [
+            {'label': 'CTR', 'value': f"{m['ctr']:.2f}%"},
+            {'label': 'CPC', 'value': f"${m['cpc']:.2f}"},
+        ]
+
+
+class AIOptimizationSettingsSerializer(serializers.ModelSerializer):
+    last_optimization = serializers.DateTimeField(source='last_optimization_at', read_only=True)
+
+    class Meta:
+        model = AIOptimizationSettings
+        fields = ['auto_optimization', 'optimization_mode', 'optimization_frequency', 'last_optimization']
+
+
+class AudienceReachRequestSerializer(serializers.Serializer):
+    min_age = serializers.IntegerField(required=False, min_value=13, max_value=65, default=18)
+    max_age = serializers.IntegerField(required=False, min_value=13, max_value=65, default=65)
+    gender = serializers.ChoiceField(choices=['all', 'male', 'female'], required=False, default='all')
+    locations = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+    keywords = serializers.CharField(required=False, allow_blank=True, default='')

@@ -2,8 +2,11 @@ from rest_framework.generics import GenericAPIView, ListAPIView
 from apps.main.mixins import RequiredOrganizationIDMixin
 from rest_framework.response import Response
 from apps.main.models import Organization
-from .models import AnalysisDaily, Report
-from .serializers import ReportSerializer
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import RetrieveUpdateAPIView
+from apps.main.utils.user_pages import build_report_insights
+from .models import AnalysisDaily, Report, ScheduledReport
+from .serializers import ReportSerializer, ScheduledReportSerializer
 from .tasks import generate_report_task
 from apps.accounts.permissions import IsOrganizationMember, IsAdminOrOwnerOfOrganization, IsRegularPlatformUser
 from rest_framework.pagination import PageNumberPagination
@@ -25,7 +28,14 @@ class ReportListView(RequiredOrganizationIDMixin, ListAPIView):
         org_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=org_id).first()
         if organization:
-            return Report.objects.filter(organization=organization).order_by('-created_at')
+            qs = Report.objects.filter(organization=organization).order_by('-created_at')
+            report_type = self.request.query_params.get('report_type')
+            if report_type:
+                qs = qs.filter(report_type__iexact=report_type)
+            search = self.request.query_params.get('search')
+            if search:
+                qs = qs.filter(name__icontains=search)
+            return qs
         return Report.objects.none()
 
 
@@ -139,3 +149,74 @@ class GenerateReportView(RequiredOrganizationIDMixin, GenericAPIView):
             "message": "Generating report, you will get a notification when completed.",
             "report_id": report.id,
         }, status=202)
+
+
+
+class ReportInsightsView(RequiredOrganizationIDMixin, GenericAPIView):
+    """GET /analysis/report-insights/ — highlights for the Reports sidebar.
+
+    Optional ``start_date`` / ``end_date`` (YYYY-MM-DD); defaults to the last 30 days.
+    """
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember | IsAdminOrOwnerOfOrganization]
+
+    def get(self, request, *args, **kwargs):
+        from datetime import datetime
+
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        if not organization:
+            return Response({"error": "Organization not found"}, status=404)
+
+        def parse(name):
+            raw = request.query_params.get(name)
+            if not raw:
+                return None
+            try:
+                return datetime.strptime(raw, '%Y-%m-%d').date()
+            except ValueError:
+                raise ValidationError({name: 'Use YYYY-MM-DD format'})
+
+        return Response(build_report_insights(organization, parse('start_date'), parse('end_date')))
+
+
+# TODO: scheduled reports are stored and can be toggled, but no task generates them yet
+# (see the ScheduledReport model docstring). These defaults seed new organizations.
+DEFAULT_SCHEDULED_REPORTS = [
+    {'title': 'Weekly Performance Report', 'frequency': 'weekly', 'schedule': 'Every Monday at 9:00 AM'},
+    {'title': 'Monthly Summary Report', 'frequency': 'monthly', 'schedule': '1st of every month at 10:00 AM'},
+    {'title': 'Campaign Performance Report', 'frequency': 'monthly', 'schedule': '15th of every month at 11:00 AM'},
+]
+
+
+class ScheduledReportListView(RequiredOrganizationIDMixin, ListAPIView):
+    """GET /analysis/scheduled-reports/ — list (seeding defaults on first use)."""
+    serializer_class = ScheduledReportSerializer
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember | IsAdminOrOwnerOfOrganization]
+    pagination_class = None
+
+    def _organization(self):
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Organization not found'})
+        return organization
+
+    def get_queryset(self):
+        organization = self._organization()
+        if not ScheduledReport.objects.filter(organization=organization).exists():
+            ScheduledReport.objects.bulk_create([
+                ScheduledReport(organization=organization, **item) for item in DEFAULT_SCHEDULED_REPORTS
+            ])
+        return ScheduledReport.objects.filter(organization=organization)
+
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({'count': len(serializer.data), 'results': serializer.data})
+
+
+class ScheduledReportDetailView(RequiredOrganizationIDMixin, RetrieveUpdateAPIView):
+    """GET/PATCH /analysis/scheduled-reports/<id>/ — toggle ``enabled``."""
+    serializer_class = ScheduledReportSerializer
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        return ScheduledReport.objects.filter(organization__snowflake_id=self.get_org_id())

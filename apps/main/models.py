@@ -520,3 +520,31 @@ class PlatformSyncEvent(models.Model):
     def __str__(self):
         return f"{self.campaign_id}:{self.platform}:{self.operation}:{self.status}"
 
+
+
+class AIOptimizationSettings(models.Model):
+    """Per-organization AI Control Center preferences (AI Tools → Optimization)."""
+
+    class Mode(models.TextChoices):
+        CONSERVATIVE = 'conservative', 'Conservative'
+        BALANCED = 'balanced', 'Balanced'
+        AGGRESSIVE = 'aggressive', 'Aggressive'
+
+    class Frequency(models.TextChoices):
+        DAILY = 'Daily Optimization', 'Daily Optimization'
+        WEEKLY = 'Weekly Optimization', 'Weekly Optimization'
+        REALTIME = 'Real-time Optimization', 'Real-time Optimization'
+
+    organization = models.OneToOneField(
+        Organization, on_delete=models.CASCADE, related_name='ai_optimization_settings'
+    )
+    auto_optimization = models.BooleanField(default=True)
+    optimization_mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.BALANCED)
+    optimization_frequency = models.CharField(
+        max_length=30, choices=Frequency.choices, default=Frequency.DAILY
+    )
+    last_optimization_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"AI optimization settings for {self.organization_id}"

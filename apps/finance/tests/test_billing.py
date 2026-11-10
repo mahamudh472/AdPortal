@@ -137,3 +137,84 @@ class BillingHistoryTests(FinanceTestBase):
         self.client.credentials()
         res = self.client.get(self._url())
         self.assertEqual(res.status_code, 401)
+
+
+class BillingHistoryShapeTests(FinanceTestBase):
+    """The billing table renders these fields directly."""
+
+    def _url(self):
+        return f"{BASE}/billing-history/?org_id={self.org_id}"
+
+    def test_row_contains_display_fields(self):
+        plan = self.create_plan("starter", price=79)
+        sub = self.create_subscription(plan)
+        payment = self.create_payment(sub, amount=79)
+
+        res = self.client.get(self._url())
+        self.assertEqual(res.status_code, 200)
+        row = res.data[0]
+        self.assertEqual(row["id"], payment.id)
+        self.assertEqual(row["description"], "Starter Plan - Monthly Subscription")
+        self.assertEqual(row["status"], "Paid")
+        self.assertEqual(float(row["amount"]), 79.0)
+        self.assertIn("start", row["period"])
+        self.assertIn("end", row["period"])
+        self.assertFalse(row["has_invoice"])
+
+    def test_has_invoice_when_stripe_invoice_exists(self):
+        sub = self.create_subscription(self.create_plan("growth", price=199))
+        payment = self.create_payment(sub, amount=199)
+        payment.stripe_invoice_id = "in_123"
+        payment.save()
+        res = self.client.get(self._url())
+        self.assertTrue(res.data[0]["has_invoice"])
+
+
+class InvoiceDownloadTests(FinanceTestBase):
+    @patch("apps.finance.views.stripe.Invoice.retrieve", return_value={"invoice_pdf": "https://stripe.test/in_1.pdf"})
+    def test_single_invoice_returns_url(self, mock_retrieve):
+        sub = self.create_subscription(self.create_plan("starter"))
+        payment = self.create_payment(sub)
+        payment.stripe_invoice_id = "in_1"
+        payment.save()
+        res = self.client.get(f"{BASE}/invoices/{payment.id}/download/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["url"], "https://stripe.test/in_1.pdf")
+
+    def test_single_invoice_without_stripe_invoice_returns_404(self):
+        sub = self.create_subscription(self.create_plan("starter"))
+        payment = self.create_payment(sub)
+        res = self.client.get(f"{BASE}/invoices/{payment.id}/download/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 404)
+
+    def test_download_all_without_invoices_returns_404(self):
+        res = self.client.get(f"{BASE}/invoices/download-all/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 404)
+
+    @patch("requests.get")
+    @patch("apps.finance.views.stripe.Invoice.retrieve", return_value={"invoice_pdf": "https://stripe.test/in_1.pdf"})
+    def test_download_all_returns_zip(self, mock_retrieve, mock_get):
+        import io
+        import zipfile
+
+        mock_get.return_value = MagicMock(content=b"%PDF-1.4 fake", raise_for_status=lambda: None)
+        sub = self.create_subscription(self.create_plan("starter"))
+        payment = self.create_payment(sub)
+        payment.stripe_invoice_id = "in_1"
+        payment.save()
+
+        res = self.client.get(f"{BASE}/invoices/download-all/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res["Content-Type"], "application/zip")
+        archive = zipfile.ZipFile(io.BytesIO(res.content))
+        self.assertEqual(len(archive.namelist()), 1)
+
+    def test_other_org_payment_not_downloadable(self):
+        other_owner = self.create_user(email="other_fin_owner@example.com")
+        other_org = self.create_organization(other_owner)
+        from apps.finance.models import Payment
+        payment = Payment.objects.create(
+            organization=other_org, amount=10, status="paid", stripe_invoice_id="in_x"
+        )
+        res = self.client.get(f"{BASE}/invoices/{payment.id}/download/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 404)

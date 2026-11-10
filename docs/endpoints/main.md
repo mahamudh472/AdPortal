@@ -52,7 +52,9 @@
 
 ### `GET /api/v1/main/campaigns/`
 - Query params: `org_id`, `search`, `status`, `page`, `page_size`.
-- Response: paginated campaign list.
+- Response: paginated campaign list. Besides the campaign fields and totals (`total_budget`, `total_spent`, `impressions`, `clicks`, `conversions`, `ctr`, `roas`) each row has:
+  - `ctr_trend`, `conversions_trend`, `roas_trend`: last 7 days vs the 7 days before, formatted like `"↑ 12.5%"` / `"↓ 2.1%"`; `null` when neither period has data.
+  - `sparkline_data`: daily clicks for the last 7 days (oldest first).
 
 ### `GET /api/v1/main/campaign/<int:id>/`
 ### `PUT/PATCH /api/v1/main/campaign/<int:id>/`
@@ -61,6 +63,7 @@
 - Path params: `id`.
 - Request body for update: campaign serializer fields.
 - Delete response: HTTP `204`.
+- The GET response also includes `placements`: spend share per platform, `[{"platform": "META", "label": "Meta", "spend": 75.0, "impressions": 1000, "clicks": 50, "percent": 75.0}]` (empty until analytics have synced).
 
 ### `POST /api/v1/main/campaign/<int:id>/toggle-status/`
 - Query params: `org_id`.
@@ -100,6 +103,7 @@
 ```
 
 - Response: campaign state object including `campaign_id`, `status`, and campaign fields.
+- Send `{"campaign_id": 123, "draft": false}` to publish a draft campaign (all required fields must already be saved). The campaign wizard's final step does this.
 
 ## Integrations
 
@@ -199,14 +203,75 @@ Meta example:
 ```
 
 ### `GET /api/v1/main/ai-insights/`
-- Query params: `org_id`, `page`, `page_size`.
-- Response: paginated AI insight objects.
+- Query params: `org_id`, `page`, `page_size` (max 20).
+- Response: paginated insights plus page-level summary data used by AI Tools → Optimization:
+
+```json
+{
+  "count": 2, "next": null, "previous": null,
+  "last_optimization": "2026-11-10T08:30:00Z",
+  "summary": {"active_insights": 2, "high_priority": 1, "applied_today": 0, "est_savings": 0.0},
+  "potential_impact": {"conversions": "+25%", "cost_per_result": "-15%", "roas": "+18%"},
+  "results": [{
+    "id": 1, "campaign": 4, "campaign_name": "Summer Sale", "title": "...", "description": "...",
+    "impact": "HIGH", "created_at": "...",
+    "metrics": [{"label": "CTR", "value": "3.40%"}, {"label": "CPC", "value": "$0.45"}],
+    "campaigns_count": 1, "action_text": "Apply Suggestion", "action_type": "apply"
+  }]
+}
+```
+
+- `metrics` are the campaign's real CTR/CPC for the last 30 days.
+- TODO: `summary.applied_today`, `summary.est_savings`, `potential_impact` and the `action_*` fields are placeholders (action is derived from `impact`) until applied optimizations are tracked.
+
+### `GET/PATCH /api/v1/main/ai-optimization/settings/`
+- Query params: `org_id`. PATCH requires an `OWNER`/`ADMIN`.
+- Body / response:
+
+```json
+{"auto_optimization": true, "optimization_mode": "balanced", "optimization_frequency": "Daily Optimization", "last_optimization": null}
+```
+
+- `optimization_mode`: `conservative` | `balanced` | `aggressive`. `optimization_frequency`: `Daily Optimization` | `Weekly Optimization` | `Real-time Optimization`.
+
+### `GET /api/v1/main/ai-optimization/history/`
+- Query params: `org_id`.
+- Response: `{"count": 3, "results": [{"id": "h-1", "title": "...", "time": "...", "impact": "...", "status": "Applied"}]}`
+- TODO: illustrative entries (only for organizations that have campaigns) until optimizations are logged.
+
+### `POST /api/v1/main/ai-optimization/run/`
+- Query params: `org_id`. Powers the "Optimize Now" button.
+- Response: the settings object above plus a `message`.
+- TODO: currently only records `last_optimization`; the analysis itself still needs to be dispatched as a Celery task.
+
+### `POST /api/v1/main/audience-reach-estimate/`
+- Query params: `org_id`.
+- Request body (all optional): `min_age`, `max_age` (13-65), `gender` (`all|male|female`), `locations` (list), `keywords`.
+- Response: `{"min_reach": 630000, "max_reach": 960000, "min_label": "630K", "max_label": "960K", "progress": 63, "is_estimate": true}`
+- TODO: heuristic; replace with the platforms' reach-estimate APIs.
 
 ## Analytics and Sync
 
 ### `GET /api/v1/main/analytics/`
-- Query params: `org_id`.
-- Response: organization analytics payload.
+- Query params: `org_id`, `range` (`7D`, `30D`, `3M`, `6M` default, `1Y`; only changes `monthly_performance`).
+- Response:
+
+```json
+{
+  "top_metrics": {"total_spend": {"value": 0, "change_percent": 0, "sparkline": [0,0,0,0,0,0]}, "impressions": {...}, "click_rate": {...}, "conversions": {...}},
+  "monthly_performance": {"Nov": {"clicks": 0, "conversions": 0, "impressions": 0}},
+  "spend_by_platform": {"META": 0, "GOOGLE": 0, "TIKTOK": 0},
+  "device_performance": {"mobile": {"clicks": 0, "impressions": 0}},
+  "insights_summary": {
+    "top_performing_platform": {"platform": "TIKTOK", "label": "TikTok", "value": "4.00x ROAS"},
+    "most_conversions_platform": null, "best_click_rate_platform": null, "lowest_cost_per_conversion": null
+  }
+}
+```
+
+- `top_metrics` compare the current calendar month with the previous one; `sparkline` is the last 6 calendar months (oldest first).
+- `monthly_performance` is bucketed daily for `7D`/`30D` and monthly otherwise.
+- `insights_summary` covers the last 6 months; an entry is `null` when no platform qualifies.
 
 ### `POST /api/v1/main/sync-ads/`
 - Query params: `org_id`.
@@ -273,7 +338,8 @@ Meta example:
 
 ### `GET /api/v1/main/team-members/`
 - Query params: `org_id`.
-- Response: list of team members.
+- Response: list of team members: `{"id", "user", "role", "status", "joined_at", "last_active_at"}` (`joined_at` = account creation, `last_active_at` = last login; either may be `null`).
+- `pending_invitations` in `GET /team/` counts open (non-expired) `TeamInvitation` rows.
 
 ### `GET/PUT/PATCH/DELETE /api/v1/main/team-member/<str:id>/`
 - Query params: `org_id`.

@@ -49,3 +49,30 @@ class Report(models.Model):
     def __str__(self):
         return self.name
 
+
+
+class ScheduledReport(models.Model):
+    """A recurring report an organization wants generated automatically.
+
+    TODO: nothing generates these on a schedule yet. Add a Celery beat task that
+    walks enabled rows, calls ``generate_report_task`` and advances ``next_run_at``.
+    """
+    class Frequency(models.TextChoices):
+        WEEKLY = 'weekly', 'Weekly'
+        MONTHLY = 'monthly', 'Monthly'
+
+    organization = models.ForeignKey('main.Organization', on_delete=models.CASCADE, related_name='scheduled_reports')
+    title = models.CharField(max_length=255)
+    frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.WEEKLY)
+    # Human-readable description shown in the UI, e.g. "Every Monday at 9:00 AM".
+    schedule = models.CharField(max_length=255)
+    included_metrics = models.JSONField(default=list, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.title} ({self.organization_id})"

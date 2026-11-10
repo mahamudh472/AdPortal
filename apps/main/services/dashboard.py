@@ -4,8 +4,8 @@ class DashboardService:
     def get_dashboard_data(self, organization, **kwargs):
         return get_dashboard_data(organization.snowflake_id, **kwargs)
 
-    def get_analytics_data(self, snowflake_id):
-        return get_analytics_data(snowflake_id)
+    def get_analytics_data(self, snowflake_id, chart_range='6M'):
+        return get_analytics_data(snowflake_id, chart_range=chart_range)
 
     def get_integration_status(self, organization):
         integrations = []

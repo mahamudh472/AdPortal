@@ -53,7 +53,7 @@
 ```
 
 ## `GET /api/v1/finance/billing-history/`
-- Purpose: Return organization payment history.
+- Purpose: Return organization payment history (requires `OWNER`/`ADMIN`).
 - Query params:
 	- `org_id` (required)
 - Request body: none.
@@ -61,9 +61,21 @@
 
 ```json
 [
-	{"amount": "29.00", "status": "paid", "paid_at": "2026-04-01T06:00:00Z", "invoice_url": "https://billing.example.com/invoices/123"}
+	{"id": 7, "date": "2026-04-01T06:00:00Z", "description": "Starter Plan - Monthly Subscription", "period": {"start": "2026-04-01T06:00:00Z", "end": "2026-05-01T06:00:00Z"}, "amount": "79.00", "currency": "USD", "status": "Paid", "paid_at": "2026-04-01T06:00:00Z", "has_invoice": true}
 ]
 ```
+
+- `status` is one of `Paid`, `Pending`, `Failed`, `Refunded`. `has_invoice` is true when a Stripe invoice exists for the payment.
+
+## `GET /api/v1/finance/invoices/<payment_id>/download/`
+- Purpose: Resolve the Stripe-hosted PDF for one payment (requires `OWNER`/`ADMIN`).
+- Query params: `org_id` (required).
+- Response: `{"url": "https://pay.stripe.com/invoice/.../pdf"}`; `404` when the payment has no invoice.
+
+## `GET /api/v1/finance/invoices/download-all/`
+- Purpose: ZIP archive of every available invoice PDF (requires `OWNER`/`ADMIN`).
+- Query params: `org_id` (required).
+- Response: `application/zip` (`invoices.zip`); `404` when there is nothing to download.
 
 ## `POST /api/v1/finance/stripe/webhook/`
 - Purpose: Stripe server-to-server webhook receiver.

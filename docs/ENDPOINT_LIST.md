@@ -72,6 +72,10 @@
 | POST | `/api/v1/main/generate-ai-copy/` | [Main details](./endpoints/main.md) |
 | POST | `/api/v1/main/generate-ad-copy/` | [Main details](./endpoints/main.md) |
 | GET | `/api/v1/main/ai-insights/` | [Main details](./endpoints/main.md) |
+| GET, PATCH | `/api/v1/main/ai-optimization/settings/` | [Main details](./endpoints/main.md) |
+| GET | `/api/v1/main/ai-optimization/history/` | [Main details](./endpoints/main.md) |
+| POST | `/api/v1/main/ai-optimization/run/` | [Main details](./endpoints/main.md) |
+| POST | `/api/v1/main/audience-reach-estimate/` | [Main details](./endpoints/main.md) |
 | GET | `/api/v1/main/analytics/` | [Main details](./endpoints/main.md) |
 | POST | `/api/v1/main/create-platform-campaign/` | [Main details](./endpoints/main.md) |
 | GET | `/api/v1/main/team/` | [Main details](./endpoints/main.md) |
@@ -91,6 +95,9 @@
 |---|---|---|
 | GET | `/api/v1/analysis/reports/` | [Analysis details](./endpoints/analysis.md) |
 | POST | `/api/v1/analysis/generate-report/` | [Analysis details](./endpoints/analysis.md) |
+| GET | `/api/v1/analysis/report-insights/` | [Analysis details](./endpoints/analysis.md) |
+| GET | `/api/v1/analysis/scheduled-reports/` | [Analysis details](./endpoints/analysis.md) |
+| GET, PATCH | `/api/v1/analysis/scheduled-reports/<int:pk>/` | [Analysis details](./endpoints/analysis.md) |
 
 ## Finance Endpoints
 
@@ -100,6 +107,8 @@
 | POST | `/api/v1/finance/buy-plan/` | [Finance details](./endpoints/finance.md) |
 | GET | `/api/v1/finance/get-current-plan/` | [Finance details](./endpoints/finance.md) |
 | GET | `/api/v1/finance/billing-history/` | [Finance details](./endpoints/finance.md) |
+| GET | `/api/v1/finance/invoices/<int:payment_id>/download/` | [Finance details](./endpoints/finance.md) |
+| GET | `/api/v1/finance/invoices/download-all/` | [Finance details](./endpoints/finance.md) |
 | POST | `/api/v1/finance/stripe/webhook/` | [Finance details](./endpoints/finance.md) |
 
 ## Admin Dashboard Endpoints

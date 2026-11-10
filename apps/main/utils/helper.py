@@ -665,7 +665,7 @@ def get_dashboard_data(
         'recent_campaigns': SimpleCampaignSerializer(recent_campaigns, many=True).data,
     }
 
-def get_analytics_data(organization_id: str):
+def get_analytics_data(organization_id: str, chart_range: str = '6M'):
     """
     Returns analytics data for the given organization:
     - top_metrics: Total spend, impressions, click_rate, conversions for the
@@ -674,9 +674,14 @@ def get_analytics_data(organization_id: str):
     - spend_by_platform: Last 6 months monthly spend broken down by platform.
     - device_performance: Aggregated clicks and impressions by device type drawn
       from the device_breakdown JSONField.
+    - insights_summary: Best platform per highlight card (ROAS, conversions, CTR, CPA).
+
+    ``chart_range`` controls the ``monthly_performance`` series: 7D / 30D return
+    daily buckets, 3M / 6M / 1Y return monthly buckets.
     """
     from dateutil.relativedelta import relativedelta
     from apps.main.models import Platform
+    from apps.main.utils.user_pages import build_platform_insights
 
     organization = Organization.objects.get(snowflake_id=organization_id)
     today = timezone.now().date()
@@ -735,30 +740,85 @@ def get_analytics_data(organization_id: str):
         },
     }
 
-    # ── Last 6 months list (oldest → newest) ─────────────────────────────
-    months_list = []
-    for i in range(5, -1, -1):
-        d = current_month_start - relativedelta(months=i)
-        months_list.append((d.year, d.month, d.strftime('%b')))
+    # ── Performance series (oldest → newest), bucketed by chart_range ────────
+    chart_range = (chart_range or '6M').upper()
+    monthly_performance = {}
+    sparkline_months = [(current_month_start - relativedelta(months=i)) for i in range(5, -1, -1)]
 
-    # ── Monthly performance matrix ────────────────────────────────────────
-    monthly_performance = {label: {'clicks': 0, 'conversions': 0, 'impressions': 0} for _, _, label in months_list}
+    if chart_range in ('7D', '30D'):
+        span = 7 if chart_range == '7D' else 30
+        first_day = today - timedelta(days=span - 1)
+        days = [first_day + timedelta(days=i) for i in range(span)]
+        monthly_performance = {
+            d.strftime('%b %d'): {'clicks': 0, 'conversions': 0, 'impressions': 0} for d in days
+        }
+        for row in (
+            all_data.filter(date__gte=first_day, date__lte=today)
+            .values('date')
+            .annotate(
+                total_clicks=Sum('clicks'),
+                total_impressions=Sum('impressions'),
+                total_conversions=Sum('conversions'),
+            )
+        ):
+            bucket = monthly_performance[row['date'].strftime('%b %d')]
+            bucket['clicks'] += row['total_clicks'] or 0
+            bucket['impressions'] += row['total_impressions'] or 0
+            bucket['conversions'] += row['total_conversions'] or 0
+    else:
+        month_count = {'3M': 3, '1Y': 12}.get(chart_range, 6)
+        range_start = current_month_start - relativedelta(months=month_count - 1)
+        months_list = []
+        for i in range(month_count - 1, -1, -1):
+            d = current_month_start - relativedelta(months=i)
+            months_list.append((d.year, d.month, d.strftime('%b') if month_count <= 6 else d.strftime('%b %y')))
+        monthly_performance = {
+            label: {'clicks': 0, 'conversions': 0, 'impressions': 0} for _, _, label in months_list
+        }
+        for row in (
+            all_data.filter(date__gte=range_start, date__lte=today)
+            .values('date__year', 'date__month')
+            .annotate(
+                total_clicks=Sum('clicks'),
+                total_impressions=Sum('impressions'),
+                total_conversions=Sum('conversions'),
+            )
+        ):
+            for year, month, label in months_list:
+                if row['date__year'] == year and row['date__month'] == month:
+                    monthly_performance[label]['clicks'] += row['total_clicks'] or 0
+                    monthly_performance[label]['impressions'] += row['total_impressions'] or 0
+                    monthly_performance[label]['conversions'] += row['total_conversions'] or 0
 
+    # ── Six-month series used for the stat-card sparklines ────────────────
+    spark = {k: {d.strftime('%Y-%m'): 0 for d in sparkline_months} for k in ('spend', 'impressions', 'clicks', 'conversions')}
     for row in (
-        all_data
-        .filter(date__gte=six_months_ago_start, date__lte=today)
+        all_data.filter(date__gte=six_months_ago_start, date__lte=today)
         .values('date__year', 'date__month')
         .annotate(
-            total_clicks=Sum('clicks'),
-            total_impressions=Sum('impressions'),
-            total_conversions=Sum('conversions'),
+            s=Sum('spend'), i=Sum('impressions'), c=Sum('clicks'), v=Sum('conversions'),
         )
     ):
-        for year, month, label in months_list:
-            if row['date__year'] == year and row['date__month'] == month:
-                monthly_performance[label]['clicks'] += row['total_clicks'] or 0
-                monthly_performance[label]['impressions'] += row['total_impressions'] or 0
-                monthly_performance[label]['conversions'] += row['total_conversions'] or 0
+        key = f"{row['date__year']:04d}-{row['date__month']:02d}"
+        if key in spark['spend']:
+            spark['spend'][key] = round(row['s'] or 0, 2)
+            spark['impressions'][key] = row['i'] or 0
+            spark['clicks'][key] = row['c'] or 0
+            spark['conversions'][key] = row['v'] or 0
+
+    def _sparkline(metric):
+        return list(spark[metric].values())
+
+    def _ctr_sparkline():
+        return [
+            round((c / i * 100) if i else 0, 2)
+            for c, i in zip(spark['clicks'].values(), spark['impressions'].values())
+        ]
+
+    top_metrics['total_spend']['sparkline'] = _sparkline('spend')
+    top_metrics['impressions']['sparkline'] = _sparkline('impressions')
+    top_metrics['click_rate']['sparkline'] = _ctr_sparkline()
+    top_metrics['conversions']['sparkline'] = _sparkline('conversions')
 
     # ── Spend by platform (current month total per platform) ─────────────
     platforms = [p[0] for p in Platform.choices]
@@ -797,5 +857,8 @@ def get_analytics_data(organization_id: str):
         'monthly_performance': monthly_performance,
         'spend_by_platform': spend_by_platform,
         'device_performance': device_performance,
+        'insights_summary': build_platform_insights(
+            all_data.filter(date__gte=six_months_ago_start, date__lte=today)
+        ),
     }
 

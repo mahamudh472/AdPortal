@@ -4,7 +4,7 @@ from rest_framework import generics, status
 from apps.main.utils.tiktok_handler import create_full_ad_for_tiktok
 from .services import AdCreationService, CampaignService, DashboardService, AIService, TeamService
 from .serializers import (
-    AIAdCopySerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer
+    AIAdCopySerializer, AIInsightDetailSerializer, AudienceReachRequestSerializer, AIOptimizationSettingsSerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer
 )
 from .models import AdAsset, UnifiedCampaign, Organization, CampaignBudget
 from apps.accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember
@@ -12,6 +12,7 @@ from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from .mixins import RequiredOrganizationIDMixin
+from .utils.user_pages import get_campaign_list_extras
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from rest_framework.permissions import AllowAny
@@ -72,6 +73,18 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
             raise ValidationError({'org_id': 'Invalid organization id'})
 
         return CampaignService().get_campaign_list_queryset(organization)
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        # Trend + sparkline data for the campaigns on this page only (single query).
+        ids = [c.id for c in (page if page is not None else queryset)]
+        self._campaign_extras = get_campaign_list_extras(ids)
+        return page
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['campaign_extras'] = getattr(self, '_campaign_extras', {})
+        return context
 
 class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CampaignSerializer
@@ -209,16 +222,95 @@ class AIInsightPagination(PageNumberPagination):
     max_page_size = 20
 
 class AIInsightListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
-    serializer_class = AIInsightSerializer
+    serializer_class = AIInsightDetailSerializer
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
     pagination_class = AIInsightPagination
 
-    def get_queryset(self):
+    def get_organization(self):
         org_snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=org_snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        return AIService().get_ai_insights_queryset(organization)
+        return organization
+
+    def get_queryset(self):
+        return AIService().get_ai_insights_queryset(self.get_organization()).select_related('campaign')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update(getattr(self, '_insight_context', {}))
+        return context
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        self._insight_context = AIService().get_insight_serializer_context(
+            self.get_organization(), page if page is not None else queryset
+        )
+        return page
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        organization = self.get_organization()
+        service = AIService()
+        optimization_settings = service.get_optimization_settings(organization)
+        response.data['last_optimization'] = optimization_settings.last_optimization_at
+        response.data['summary'] = service.get_optimization_summary(organization)
+        response.data['potential_impact'] = service.get_potential_impact(organization)
+        return response
+
+
+class AIOptimizationSettingsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """GET/PATCH /main/ai-optimization/settings/ — AI Control Center preferences."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = AIOptimizationSettingsSerializer
+
+    def _organization(self):
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        return organization
+
+    def get(self, request, *args, **kwargs):
+        instance = AIService().get_optimization_settings(self._organization())
+        return Response(self.get_serializer(instance).data)
+
+    def patch(self, request, *args, **kwargs):
+        organization = self._organization()
+        if not organization.memberships.filter(user=request.user, role__in=['OWNER', 'ADMIN']).exists():
+            raise PermissionDenied("You do not have permission to change AI optimization settings.")
+        instance = AIService().get_optimization_settings(organization)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class AIOptimizationHistoryAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """GET /main/ai-optimization/history/ — recent optimization activity."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def get(self, request, *args, **kwargs):
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        results = AIService().get_optimization_history(organization)
+        return Response({'count': len(results), 'results': results})
+
+
+class AIOptimizationRunAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /main/ai-optimization/run/ — the "Optimize Now" button."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = AIOptimizationSettingsSerializer
+
+    def post(self, request, *args, **kwargs):
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        if not organization:
+            raise ValidationError({'org_id': 'Invalid organization id'})
+        instance = AIService().run_optimization(organization)
+        return Response({
+            'message': 'AI Optimization check complete! Recommendations updated.',
+            **self.get_serializer(instance).data,
+        })
 
 
 class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
@@ -229,8 +321,43 @@ class AnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
             raise ValidationError({'org_id': 'Invalid organization id'})
-        data = DashboardService().get_analytics_data(snowflake_id)
+        chart_range = request.query_params.get('range', '6M')
+        data = DashboardService().get_analytics_data(snowflake_id, chart_range=chart_range)
         return Response(data, status=status.HTTP_200_OK)
+
+class AudienceReachEstimateAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /main/audience-reach-estimate/ — "Estimated reach" card on the audience step."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = AudienceReachRequestSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # TODO: replace this heuristic with the platforms' reach-estimate APIs
+        # (Meta delivery_estimate, TikTok reach_frequency, Google keyword planner).
+        base_min, base_max = 630, 960
+        if data['gender'] != 'all':
+            base_min -= 50
+            base_max -= 80
+        if len(data['keywords']) > 10:
+            base_min += 150
+            base_max += 290
+        # Narrower age band -> smaller audience.
+        span = max(1, data['max_age'] - data['min_age'])
+        scale = min(1.0, max(0.2, span / 47))
+        base_min, base_max = int(base_min * scale), int(base_max * scale)
+
+        return Response({
+            'min_reach': base_min * 1000,
+            'max_reach': base_max * 1000,
+            'min_label': f"{base_min}K",
+            'max_label': f"{base_max}K",
+            'progress': min(90, max(40, base_min / 10)),
+            'is_estimate': True,
+        })
+
 
 class CreatePlatformCampaignAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]

@@ -459,9 +459,83 @@ class BillingHistoryAPIView(RequiredOrganizationIDMixin, GenericAPIView):
         organization_snowflake_id = self.get_org_id()
         organization = Organization.objects.get(snowflake_id=organization_snowflake_id)
 
-        billing_history = Payment.objects.filter(organization=organization).order_by(
-            "-paid_at"
+        billing_history = (
+            Payment.objects.filter(organization=organization)
+            .select_related("subscription__plan")
+            .order_by("-paid_at", "-created_at")
         )
 
         serializer = serializers.BillingHistorySerializer(billing_history, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+def _stripe_invoice_pdf_url(payment):
+    """Resolve the Stripe-hosted PDF for a payment, or None if it has no invoice."""
+    if not payment.stripe_invoice_id:
+        return None
+    try:
+        invoice = stripe.Invoice.retrieve(payment.stripe_invoice_id)
+    except stripe.StripeError:
+        return None
+    return invoice.get("invoice_pdf") or invoice.get("hosted_invoice_url")
+
+
+class InvoiceDownloadAPIView(RequiredOrganizationIDMixin, GenericAPIView):
+    """GET /finance/invoices/<payment_id>/download/ — URL of a single invoice PDF."""
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+
+    def get(self, request, payment_id, *args, **kwargs):
+        organization = Organization.objects.get(snowflake_id=self.get_org_id())
+        payment = Payment.objects.filter(id=payment_id, organization=organization).first()
+        if not payment:
+            return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+        url = _stripe_invoice_pdf_url(payment)
+        if not url:
+            return Response(
+                {"error": "No invoice is available for this payment yet."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({"url": url})
+
+
+class InvoiceDownloadAllAPIView(RequiredOrganizationIDMixin, GenericAPIView):
+    """GET /finance/invoices/download-all/ — ZIP with every available invoice PDF."""
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
+
+    def get(self, request, *args, **kwargs):
+        import io
+        import zipfile
+
+        import requests
+        from django.http import HttpResponse
+
+        organization = Organization.objects.get(snowflake_id=self.get_org_id())
+        payments = Payment.objects.filter(
+            organization=organization, stripe_invoice_id__isnull=False
+        ).order_by("-paid_at", "-created_at")
+
+        buffer = io.BytesIO()
+        added = 0
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for payment in payments:
+                url = _stripe_invoice_pdf_url(payment)
+                if not url:
+                    continue
+                try:
+                    pdf = requests.get(url, timeout=15)
+                    pdf.raise_for_status()
+                except requests.RequestException:
+                    continue
+                stamp = (payment.paid_at or payment.created_at).strftime("%Y%m%d")
+                archive.writestr(f"invoice_{stamp}_{payment.id}.pdf", pdf.content)
+                added += 1
+
+        if not added:
+            return Response(
+                {"error": "There are no invoices available to download yet."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+        response["Content-Disposition"] = 'attachment; filename="invoices.zip"'
+        return response
