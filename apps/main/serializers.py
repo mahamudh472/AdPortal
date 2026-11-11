@@ -47,9 +47,18 @@ class PlatformAdSerializer(serializers.ModelSerializer):
         ]
 
     def get_matrics(self, obj):
-        analysis = AnalysisDaily.objects.filter(adgroup_id=obj.ad_group_id)
-        analysis = get_performance_matrics(analysis)
-        return analysis
+        # AnalysisDaily stores the *provider's* ad-group / campaign ids (strings), not local PKs.
+        ad_group = obj.ad_group
+        platform_campaign = ad_group.platform_campaign
+        if not ad_group.platform_adgroup_id:
+            return get_performance_matrics(AnalysisDaily.objects.none())
+        analysis = AnalysisDaily.objects.filter(
+            organization_id=platform_campaign.unified_campaign.organization_id,
+            platform=platform_campaign.integration.platform,
+            campaign_id=platform_campaign.platform_campaign_id,
+            adgroup_id=ad_group.platform_adgroup_id,
+        )
+        return get_performance_matrics(analysis)
 
     def get_assets(self, obj):
         return PlatformAdAssetSerializer(
