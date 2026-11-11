@@ -339,12 +339,54 @@ class NotificationSettingsAPIView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DeleteAccountView(GenericAPIView):
+    """DELETE /accounts/delete-account/  body: {"password": "..."}
+
+    Safeguards (audit SEC-15): re-authentication with the password, refuses to delete a
+    user who owns an organization that still has other active members (ownership must
+    be handled first), and cancels the Stripe subscriptions of organizations that are
+    deleted with the account so billing stops.
+    """
     permission_classes = [IsRegularPlatformUser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
 
     def delete(self, request):
+        from apps.main.models import Organization, OrganizationMember
+
         user = request.user
+        password = request.data.get('password')
+        if not password:
+            return Response({"error": "Password confirmation is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.check_password(password):
+            return Response({"error": "Incorrect password."}, status=status.HTTP_400_BAD_REQUEST)
+
+        owned = Organization.objects.filter(owner=user)
+        for org in owned:
+            if OrganizationMember.objects.filter(organization=org, status='ACTIVE').exclude(user=user).exists():
+                return Response(
+                    {"error": f'You still own "{org.name}" which has other members. '
+                              "Transfer ownership or remove the members before deleting your account."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+        self._cancel_stripe_subscriptions(owned)
         user.delete()
         return Response({"message": "Account deleted successfully"}, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _cancel_stripe_subscriptions(organizations):
+        import logging
+        import stripe
+        from apps.finance.models import Subscription
+        log = logging.getLogger(__name__)
+        subs = Subscription.objects.filter(
+            organization__in=organizations, status__in=['active', 'trialing', 'past_due'],
+        ).exclude(stripe_subscription_id__isnull=True).exclude(stripe_subscription_id='')
+        for sub in subs:
+            try:
+                stripe.Subscription.cancel(sub.stripe_subscription_id)
+            except Exception:
+                log.exception("Failed to cancel Stripe subscription %s during account deletion", sub.stripe_subscription_id)
 
 
 class MetaDataDeletionCallbackView(GenericAPIView):

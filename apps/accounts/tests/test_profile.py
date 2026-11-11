@@ -84,10 +84,27 @@ class DeleteAccountTests(AdPortalTestBase):
     def test_delete_account_success(self):
         user = self.create_user(email="delete@example.com")
         self.authenticate(user)
-        res = self.client.delete(self._url())
+        res = self.client.delete(self._url(), {"password": "StrongPass123!"}, format="json")
         self.assertEqual(res.status_code, 200)
         from apps.accounts.models import User
         self.assertFalse(User.objects.filter(email="delete@example.com").exists())
+
+    def test_delete_account_requires_correct_password(self):
+        user = self.create_user(email="delete2@example.com")
+        self.authenticate(user)
+        self.assertEqual(self.client.delete(self._url()).status_code, 400)
+        res = self.client.delete(self._url(), {"password": "wrong"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        from apps.accounts.models import User
+        self.assertTrue(User.objects.filter(email="delete2@example.com").exists())
+
+    def test_delete_account_blocked_when_org_has_other_members(self):
+        owner = self.create_user(email="delete3@example.com")
+        org = self.create_organization(owner)
+        self.add_member(self.create_user(email="other@example.com"), org)
+        self.authenticate(owner)
+        res = self.client.delete(self._url(), {"password": "StrongPass123!"}, format="json")
+        self.assertEqual(res.status_code, 409)
 
     def test_delete_account_unauthenticated_returns_401(self):
         res = self.client.delete(self._url())
