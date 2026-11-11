@@ -73,9 +73,23 @@ services:
   celery:
     build: .
     restart: unless-stopped
-    command: celery -A AdPortal worker -l info -c 2
+    command: celery -A AdPortal worker -l info -c 2 -Q celery
     volumes:
       - media:/app/media
+      - logs:/app/logs
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-ai:
+    build: .
+    restart: unless-stopped
+    command: celery -A AdPortal worker -l info -c 1 -Q ai -n ai@%h
+    volumes:
       - logs:/app/logs
     env_file:
       - .env

@@ -465,3 +465,8 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_RESULT_EXPIRES = 3600
+# Slow LLM work gets its own queue so it can't starve e-mail / sync / report tasks.
+CELERY_TASK_ROUTES = {
+    'apps.main.tasks.generate_ai_insights_for_campaign': {'queue': 'ai'},
+    'apps.main.tasks.generate_ai_insights_for_active_campaigns': {'queue': 'ai'},
+}
