@@ -41,3 +41,26 @@ class AdminNotificationSettings(models.Model):
     failed_payment = models.BooleanField(default=True)
     system_errors = models.BooleanField(default=True)
     security_alerts = models.BooleanField(default=True)
+
+
+class AdminAuditLog(models.Model):
+    """Append-only record of sensitive actions performed by platform staff (audit SEC-44)."""
+    actor = models.ForeignKey('accounts.User', null=True, on_delete=models.SET_NULL, related_name='admin_audit_logs')
+    actor_email = models.CharField(max_length=255)
+    action = models.CharField(max_length=100, db_index=True)
+    target_type = models.CharField(max_length=50, blank=True)
+    target_id = models.CharField(max_length=100, blank=True)
+    detail = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.created_at:%Y-%m-%d %H:%M} {self.actor_email} {self.action} {self.target_type}:{self.target_id}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("Audit log entries are immutable.")
+        super().save(*args, **kwargs)

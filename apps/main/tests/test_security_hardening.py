@@ -460,3 +460,27 @@ class PrivacyTests(MainTestBase):
         self.assertTrue(AdIntegration.objects.filter(pk=theirs.pk).exists())
         self.assertEqual(AdIntegration.objects.filter(platform="TIKTOK").count(), 1)
         self.assertTrue(self.org.__class__.objects.filter(pk=self.org.pk).exists())
+
+
+class AdminAuditTests(MainTestBase):
+    def _staff(self):
+        staff = self.create_user(email="staff@example.com", is_staff=True)
+        self.authenticate(staff)
+        return staff
+
+    def test_org_status_change_and_delete_are_audited_and_confirmed(self):  # SEC-44/45
+        from apps.admin_dashboard.models import AdminAuditLog
+        self._staff()
+        url = f"/api/v1/admin/organizations/{self.org.snowflake_id}/"
+        self.assertEqual(self.client.patch(url, {"status": "SUSPENDED"}, format="json").status_code, 200)
+        self.assertTrue(AdminAuditLog.objects.filter(action="organization.status_changed").exists())
+        self.assertEqual(self.client.delete(url).status_code, 400)  # no confirmation
+        self.assertEqual(self.client.delete(url + f"?confirm={self.org.snowflake_id}").status_code, 204)
+        self.assertTrue(AdminAuditLog.objects.filter(action="organization.deleted").exists())
+
+    def test_audit_entries_are_immutable(self):
+        from apps.admin_dashboard.models import AdminAuditLog
+        entry = AdminAuditLog.objects.create(actor_email="a@b.c", action="x")
+        with self.assertRaises(PermissionError):
+            entry.action = "y"
+            entry.save()

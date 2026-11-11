@@ -264,7 +264,8 @@ class AdminStatsTests(APITestCase):
 
     def test_delete_organization(self):
         url = f"/api/v1/admin/organizations/{self.org1.snowflake_id}/"
-        res = self.client.delete(url)
+        self.assertEqual(self.client.delete(url).status_code, 400)  # confirmation required
+        res = self.client.delete(url + f"?confirm={self.org1.snowflake_id}")
         self.assertEqual(res.status_code, 204)
         
         # Verify deleted from DB

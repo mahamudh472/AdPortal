@@ -27,6 +27,9 @@ from .services.organization_management import get_active_organizations, get_susp
 from .services.finance import get_finance_overview_data
 from .services.platform_analysis import get_platform_analysis_data
 
+from . import audit  # noqa: E402
+
+
 class DashboardAPIView(generics.GenericAPIView):
 	permission_classes = [IsAdminUser]
 
@@ -109,6 +112,7 @@ class ChangeUserStatusAPIView(generics.UpdateAPIView):
                 status=400,
             )
 
+        previous_status = user.status
         if new_status == 'active':
             user.is_active = True
             user.status = 'active'
@@ -120,6 +124,8 @@ class ChangeUserStatusAPIView(generics.UpdateAPIView):
             user.status = 'suspended'
 
         user.save()
+        audit.record(request, 'user.status_changed', 'user', user.pk, email=user.email,
+                     from_status=previous_status, to_status=new_status)
 
         # Inform the affected user of the status change
         from apps.accounts.notifications import notify_user
@@ -185,8 +191,11 @@ class AdminOrganizationDetailAPIView(generics.GenericAPIView):
         if status_upper not in OrganizationStatusChoices.values:
             return Response({'error': f'Invalid status. Allowed values: {OrganizationStatusChoices.values}'}, status=400)
 
+        previous = organization.status
         organization.status = status_upper
         organization.save()
+        audit.record(request, 'organization.status_changed', 'organization', organization.snowflake_id,
+                     name=organization.name, from_status=previous, to_status=status_upper)
         return Response({
             'message': f'Organization status updated to {status_upper} successfully.',
             'status': organization.status
@@ -194,6 +203,14 @@ class AdminOrganizationDetailAPIView(generics.GenericAPIView):
 
     def delete(self, request, *args, **kwargs):
         organization = self.get_object()
+        # Destructive: require the caller to echo the organization's snowflake id.
+        if str(request.data.get('confirm', request.query_params.get('confirm', ''))) != str(organization.snowflake_id):
+            return Response(
+                {'error': 'Confirmation required: pass confirm=<organization snowflake id>.'}, status=400
+            )
+        from apps.accounts.views import DeleteAccountView
+        DeleteAccountView._cancel_stripe_subscriptions([organization])
+        audit.record(request, 'organization.deleted', 'organization', organization.snowflake_id, name=organization.name)
         organization.delete()
         return Response(status=204)
 
@@ -342,6 +359,7 @@ class GenerateAdminReportView(generics.GenericAPIView):
 
         from .tasks import generate_admin_report_task
         generate_admin_report_task.delay(report.id)
+        audit.record(request, 'admin_report.generated', 'admin_report', report.id, report_type=report.report_type)
 
         return Response(
             {
