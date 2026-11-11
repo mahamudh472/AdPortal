@@ -15,6 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from apps.main import health
 from rest_framework.permissions import IsAdminUser
 from django.urls import path, include
 from django.conf import settings
@@ -23,6 +24,8 @@ from apps.main.integration_handler import MetaConnect, MetaCallback, TikTokCallb
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
+    path('healthz', health.healthz),
+    path('readyz', health.readyz),
     path('admin/', admin.site.urls),
     path('api/v1/accounts/', include('apps.accounts.urls')),
     path('api/v1/admin/', include('apps.admin_dashboard.urls')),

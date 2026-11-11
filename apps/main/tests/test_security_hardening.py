@@ -297,3 +297,30 @@ class HousekeepingTests(MainTestBase):
         from apps.main.models import next_snowflake_id
         ids = {next_snowflake_id() for _ in range(500)}
         self.assertEqual(len(ids), 500)
+
+
+class HealthTests(MainTestBase):
+    def test_probes_are_public(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get("/healthz").status_code, 200)
+        res = self.client.get("/readyz")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["checks"]["database"], "ok")
+
+
+class AdminUserTests(MainTestBase):
+    def test_admin_add_and_change_user_hash_password(self):  # SEC-28
+        from django.test import Client
+        su = self.create_user(email="su@example.com", is_staff=True, is_superuser=True)
+        c = Client()
+        c.force_login(su)
+        self.assertEqual(c.get("/admin/accounts/user/add/").status_code, 200)
+        res = c.post("/admin/accounts/user/add/", {
+            "email": "newadmin@example.com", "password1": "Sup3r-Secret-pass!", "password2": "Sup3r-Secret-pass!",
+        })
+        self.assertIn(res.status_code, (200, 302))
+        created = User.objects.filter(email="newadmin@example.com").first()
+        self.assertIsNotNone(created)
+        self.assertNotEqual(created.password, "Sup3r-Secret-pass!")
+        self.assertTrue(created.check_password("Sup3r-Secret-pass!"))
+        self.assertEqual(c.get(f"/admin/accounts/user/{su.pk}/change/").status_code, 200)
