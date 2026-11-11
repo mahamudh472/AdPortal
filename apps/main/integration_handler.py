@@ -48,11 +48,7 @@ def fetch_meta_ads_account(organization, page_id=None):
 
         # Keep backward compatibility for callers that still request the unfiltered list.
         if not page_id:
-            ad_accounts = requests.get(
-                "https://graph.facebook.com/v18.0/me/adaccounts",
-                params={"access_token": access_token},
-                timeout=30,
-            ).json()
+            ad_accounts = requests.get('https://graph.facebook.com/v18.0/me/adaccounts', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
             data = ad_accounts.get('data', [])
             for item in data:
@@ -60,14 +56,7 @@ def fetch_meta_ads_account(organization, page_id=None):
 
             return ad_accounts
 
-        page_details = requests.get(
-            f"https://graph.facebook.com/v18.0/{page_id}",
-            params={
-                "access_token": access_token,
-                "fields": "id,name,business{id,name}",
-            },
-            timeout=30,
-        ).json()
+        page_details = requests.get(f'https://graph.facebook.com/v18.0/{page_id}', params={'fields': 'id,name,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
         if page_details.get("error"):
             return {
@@ -87,14 +76,7 @@ def fetch_meta_ads_account(organization, page_id=None):
         all_accounts = []
         seen_accounts = set()
         for edge in ["owned_ad_accounts", "client_ad_accounts"]:
-            ad_accounts = requests.get(
-                f"https://graph.facebook.com/v18.0/{business_id}/{edge}",
-                params={
-                    "access_token": access_token,
-                    "fields": "id,name,account_id,currency,account_status,business{id,name}",
-                },
-                timeout=30,
-            ).json()
+            ad_accounts = requests.get(f'https://graph.facebook.com/v18.0/{business_id}/{edge}', params={'fields': 'id,name,account_id,currency,account_status,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
             for item in ad_accounts.get('data', []):
                 acc_id = item.get('id')
@@ -134,24 +116,13 @@ def fetch_meta_pages(organization):
     access_token = ad_profile.access_token
 
     # Get all businesses the user manages
-    biz_res = requests.get(
-        "https://graph.facebook.com/v18.0/me/businesses",
-        params={"access_token": access_token},
-        timeout=30,
-    ).json()
+    biz_res = requests.get('https://graph.facebook.com/v18.0/me/businesses', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
     all_pages = []
     seen_ids = set()
 
     for biz in biz_res.get("data", []):
-        pages_res = requests.get(
-            f"https://graph.facebook.com/v18.0/{biz['id']}/owned_pages",
-            params={
-                "access_token": access_token,
-                "fields": "id,name,category,picture",
-            },
-            timeout=30,
-        ).json()
+        pages_res = requests.get(f'https://graph.facebook.com/v18.0/{biz['id']}/owned_pages', params={'fields': 'id,name,category,picture'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
         for page in pages_res.get("data", []):
             if page["id"] not in seen_ids:
@@ -423,11 +394,14 @@ class MetaCallback(APIView):
         if not user_id:
             return Response("Invalid or expired state", status=400)
         
-        user = User.objects.get(id=user_id)
-        
-        token_res = requests.get(
+        user = User.objects.filter(id=user_id, is_active=True).first()
+        if not user:
+            return Response("Invalid or expired state", status=400)
+
+        # POST keeps the app secret and code out of URLs / access logs.
+        token_res = requests.post(
             "https://graph.facebook.com/v18.0/oauth/access_token",
-            params={
+            data={
                 "client_id": settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
                 "redirect_uri": settings.META_REDIRECT_URI,
@@ -437,17 +411,33 @@ class MetaCallback(APIView):
         ).json()
 
         if "access_token" not in token_res:
-            return Response(token_res, status=400)
-            
+            logger.warning("Meta token exchange failed: %s", token_res.get("error", {}).get("message", "unknown error"))
+            return Response({"error": "Could not connect your Meta account. Please try again."}, status=400)
+
         access_token = token_res["access_token"]
         expires_in = token_res.get("expires_in", 60 * 60)
+
+        # Exchange the short-lived token (~1-2 h) for a long-lived one (~60 days) so the
+        # integration doesn't silently die.
+        try:
+            long_res = requests.post(
+                "https://graph.facebook.com/v18.0/oauth/access_token",
+                data={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.META_APP_ID,
+                    "client_secret": settings.META_APP_SECRET,
+                    "fb_exchange_token": access_token,
+                },
+                timeout=30,
+            ).json()
+            if "access_token" in long_res:
+                access_token = long_res["access_token"]
+                expires_in = long_res.get("expires_in", 60 * 24 * 60 * 60)
+        except requests.RequestException:
+            logger.warning("Meta long-lived token exchange failed; keeping short-lived token")
         expires_at = now() + timedelta(seconds=expires_in)
 
-        me = requests.get(
-            "https://graph.facebook.com/v18.0/me",
-            params={"access_token": access_token},
-            timeout=30,
-        ).json()
+        me = requests.get('https://graph.facebook.com/v18.0/me', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
         
         organization = Organization.objects.filter(
             memberships__user=user, snowflake_id=org_id
@@ -514,7 +504,9 @@ class TikTokCallback(APIView):
         if not user_id:
             return Response("Invalid or expired state", status=400)
         
-        user = User.objects.get(id=user_id)
+        user = User.objects.filter(id=user_id, is_active=True).first()
+        if not user:
+            return Response("Invalid or expired state", status=400)
 
         res = requests.post(
             "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
@@ -527,7 +519,7 @@ class TikTokCallback(APIView):
         ).json()
 
         if "data" not in res:
-            return Response(res, status=400)
+            logger.warning("TikTok token exchange failed"); return Response({"error": "Could not connect your TikTok account. Please try again."}, status=400)
             
         data = res["data"]
         access_token = data["access_token"]
@@ -612,7 +604,9 @@ class GoogleCallback(APIView):
         if not user_id:
             return Response("Invalid or expired state", status=400)
 
-        user = User.objects.get(id=user_id)
+        user = User.objects.filter(id=user_id, is_active=True).first()
+        if not user:
+            return Response("Invalid or expired state", status=400)
 
         token_res = requests.post(
             "https://oauth2.googleapis.com/token",
@@ -627,7 +621,7 @@ class GoogleCallback(APIView):
         ).json()
 
         if "access_token" not in token_res:
-            return Response(token_res, status=400)
+            logger.warning("Google token exchange failed"); return Response({"error": "Could not connect your Google account. Please try again."}, status=400)
 
         access_token = token_res["access_token"]
         refresh_token = token_res.get("refresh_token")
@@ -662,6 +656,8 @@ class GoogleCallback(APIView):
 
         return redirect(settings.FRONTEND_URL+"/google-auth-callback")
 
+import logging
+logger = logging.getLogger(__name__)
 import re as _re
 _SAFE_ID = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
 
