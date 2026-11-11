@@ -348,6 +348,9 @@ CORS_ALLOWED_ORIGINS = list(dict.fromkeys(
 ))
 CORS_ALLOWED_ORIGINS = [o for o in CORS_ALLOWED_ORIGINS if o]
 
+# Legacy ?token=<JWT> WebSocket auth (JWT in URLs leaks into logs). Off outside DEBUG.
+WS_ALLOW_QUERY_TOKEN = os.getenv('WS_ALLOW_QUERY_TOKEN', str(DEBUG)) == 'True'
+
 USE_HTTPS = os.getenv('USE_HTTPS', 'False') == 'True'
 # SameSite for the HttpOnly refresh-token cookie. Use 'None' (requires HTTPS) only if the
 # frontend and API are on different *sites*; 'Lax' works for app.example.com <-> api.example.com.

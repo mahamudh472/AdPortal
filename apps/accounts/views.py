@@ -528,3 +528,18 @@ class ContactUsView(GenericAPIView):
             serializer.save()
             return Response({"message": "Your message has been received. We'll get back to you shortly."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WebSocketTicketView(GenericAPIView):
+    """POST /accounts/ws-ticket/ — short-lived single-use ticket for opening the notifications
+    WebSocket without putting the JWT in the URL."""
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp'
+
+    def post(self, request):
+        import secrets
+        from django.core.cache import cache
+        ticket = secrets.token_urlsafe(32)
+        cache.set(f"wsticket:{ticket}", str(request.user.id), 30)
+        return Response({"ticket": ticket, "expires_in": 30})

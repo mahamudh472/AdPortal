@@ -6,6 +6,7 @@ from channels.db import database_sync_to_async
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
 from django.contrib.auth.models import AnonymousUser
+from django.conf import settings
 
 
 class JWTAuthMiddleware(BaseMiddleware):
@@ -20,16 +21,32 @@ class JWTAuthMiddleware(BaseMiddleware):
 
         params = parse_qs(decoded)
 
+        ticket = params.get("ticket")
         token = params.get("token")
 
-        if not token:
-            scope["user"] = AnonymousUser()
-        else:
-            token = token[0]
-            user = await self.get_user(token)
-            scope["user"] = user if user is not None else AnonymousUser()
+        user = None
+        if ticket:
+            # Preferred: single-use, 30 s ticket obtained from POST /accounts/ws-ticket/
+            user = await self.get_user_from_ticket(ticket[0])
+        elif token and settings.WS_ALLOW_QUERY_TOKEN:
+            # Legacy: JWT in the URL ends up in access logs / history. Disabled by default
+            # outside DEBUG (set WS_ALLOW_QUERY_TOKEN=True temporarily during a rollout).
+            user = await self.get_user(token[0])
+        scope["user"] = user if user is not None else AnonymousUser()
 
         return await super().__call__(scope, receive, send)
+
+    @database_sync_to_async
+    def get_user_from_ticket(self, ticket):
+        from django.core.cache import cache
+        key = f"wsticket:{ticket}"
+        user_id = cache.get(key)
+        if not user_id:
+            return None
+        cache.delete(key)  # single use
+        User = get_user_model()
+        user = User.objects.filter(id=user_id, is_active=True).first()
+        return user
 
     @database_sync_to_async
     def get_user(self, token):
