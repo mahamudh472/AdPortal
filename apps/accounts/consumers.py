@@ -5,7 +5,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 class NotificationConsumer(AsyncWebsocketConsumer):
     async def connect(self) -> None:
         user = self.scope['user']
-        if user and user.is_anonymous:
+        if not user or user.is_anonymous:
             await self.close()
             return
         self.group_name = f"user_{user.id}"
@@ -14,6 +14,8 @@ class NotificationConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, code: int) -> None:
+        if not hasattr(self, 'group_name'):
+            return  # connection was rejected before joining a group
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
 

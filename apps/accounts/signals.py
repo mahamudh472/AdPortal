@@ -1,3 +1,4 @@
+import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from apps.accounts.models import User, Notification
@@ -29,11 +30,12 @@ def notification_creation_handler(sender, instance, created, **kwargs):
     if not created:
         return
 
-    if created:
+    # A Redis/channel-layer outage must never fail the business request that
+    # created the notification.
+    try:
         channel_layer = get_channel_layer()
-        group_name = f"user_{instance.user.id}"
         async_to_sync(channel_layer.group_send)(
-            group_name,
+            f"user_{instance.user.id}",
             {
                 'type': 'send_notification',
                 'data': {
@@ -43,6 +45,8 @@ def notification_creation_handler(sender, instance, created, **kwargs):
                 }
             }
         )
+    except Exception:
+        logging.getLogger(__name__).warning("WebSocket push failed for notification %s", instance.id, exc_info=True)
 
 
 @receiver(post_save, sender='main.AIInsight')

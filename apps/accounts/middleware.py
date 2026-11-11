@@ -38,7 +38,8 @@ class JWTAuthMiddleware(BaseMiddleware):
         try:
             access = AccessToken(token)
             user_id = access["user_id"]
-            return User.objects.get(id=user_id)
+            user = User.objects.get(id=user_id)
+            return user if user.is_active else None
 
         except TokenError as e:
             return None
