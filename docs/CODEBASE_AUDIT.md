@@ -65,7 +65,32 @@ Fixed in code (each has regression tests in `apps/main/tests/test_security_harde
 | PERF-17 health | Fixed — `/healthz`, `/readyz` |
 | FPERF-01 / FPERF-04 bundle & console | Fixed — lazy routes (main chunk 1.75 MB → 453 KB), vendor chunks, `console` stripped in production |
 
-**Not done (needs a product/infra decision or larger refactor):** encrypting OAuth tokens at rest (several code paths look integrations up by token value), Meta long-lived token exchange/refresh, tokens in Authorization headers, httpOnly refresh cookie, account-enumeration-safe responses, Celery e-mail sending, serving HTTP with Gunicorn (PERF-01), central `OrgPermission` (ARCH-01) / 3-lookups-per-request (PERF-03), default pagination (changes response shape), Redis password, Docker multi-stage build, MFA for admin, GDPR export/soft-delete, `Decimal` money, TanStack Query migration, signed/private media storage, Twisted upgrade once 26.10 is released.
+### Second pass (2026-11-11) — items previously left open
+
+| Finding | Status |
+|---|---|
+| SEC-12 OAuth tokens | Fixed — encrypted at rest (Fernet, `FIELD_ENCRYPTION_KEYS`, plaintext rows auto-migrated), blind-index lookup, Meta long-lived token exchange, Graph calls use `Authorization` headers, secrets POSTed not put in URLs, provider error bodies no longer echoed. *Meta token auto-refresh is not possible without user re-consent (Meta limitation); the 60-day expiry is stored in `token_expires_at`* |
+| SEC-15 Meta deletion callback | Fixed — matched on stored Facebook user id, replay window, deletes only that user's Meta integrations |
+| SEC-20 WebSocket token in URL | Fixed — single-use 30 s tickets (`POST /accounts/ws-ticket/`); `?token=` disabled outside DEBUG |
+| SEC-21 enumeration | Fixed — uniform responses for resend/reset/verify/check |
+| SEC-22 refresh token in `localStorage` | Fixed — HttpOnly cookie mode (frontend uses it; legacy clients still work) |
+| SEC-44 / SEC-45 admin actions | Fixed — immutable `AdminAuditLog`, staff protected from non-superusers, confirmed org deletion + Stripe cancel |
+| SEC-09 report privacy | Fixed — reports only via authenticated download endpoints, `/media/reports/` blocked in nginx. *Ad creatives remain public by unguessable UUID URL (they must be fetchable by Meta/TikTok and `<img>` tags)* |
+| SEC-13 AI cost | Fixed — daily per-organization cap |
+| SEC-14 Stripe | Fixed — checkout idempotency key, pending-checkout reuse, abandoned-checkout purge. *No Stripe Customer objects (would need live-Stripe validation)* |
+| PERF-01 | Fixed — Gunicorn for HTTP, Daphne only for `/ws/`, multi-stage image, Redis password support |
+| PERF-03 / ARCH-01 | Improved — organization resolved once per request and cached |
+| PERF-07 | Fixed — `status_counts` in the campaign list (4 calls → 0 extra) |
+| PERF-09 / PERF-10 | Fixed — AI insights fan out per campaign on a dedicated queue/worker; OTP e-mails sent via Celery |
+| SEC-18 | Fixed — **0** known vulnerable Python packages (Twisted 26.10.0) and 0 npm advisories |
+| GDPR | Partially — `GET /accounts/export-data/` and a safer Meta deletion callback. *No soft-delete grace period / retention jobs* |
+
+**Deliberately not done, with reasons:**
+* *Default pagination (PERF-14)* — would change the response shape of every list endpoint and break the frontend; add per-endpoint when the UI is migrated.
+* *Money as `Decimal` (Q-13)* — billing already uses `Decimal`; the remaining floats are provider analytics metrics where floats are appropriate.
+* *TanStack Query migration (FPERF-03)* — a UI-wide rewrite that cannot be validated without browser tests; recommended as a separate project.
+* *MFA for the Django admin (SEC-28)* — `/admin/` is now restricted by IP (`ADMIN_ALLOW`); add `django-otp` when a second factor policy is decided.
+* *Signed URLs for ad creatives* — requires CDN / object-storage migration (PERF-16).
 
 ---
 
