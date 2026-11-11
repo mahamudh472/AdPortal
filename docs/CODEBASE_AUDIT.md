@@ -25,6 +25,50 @@ Not done: no load testing, no live penetration test against a deployed environme
 
 ---
 
+## Remediation status (updated 2026-11-11)
+
+Fixed in code (each has regression tests in `apps/main/tests/test_security_hardening.py` unless noted):
+
+| Finding | Status |
+|---|---|
+| SEC-01 profile privilege escalation | Fixed — field allow-list |
+| SEC-02 integration IDOR / SEC-03 unscoped `campaign_id` | Fixed — membership + admin role; org-scoped campaign/asset lookups |
+| SEC-04 / SEC-05 role checks, ADMIN→OWNER | Fixed — `IsOrgAdminForWrites`, read-only `status`, role validation, no self role change |
+| SEC-06 OTP | Fixed — `secrets`, single active code, 5-attempt lockout, no replay, throttled |
+| SEC-07 insecure defaults | Fixed — `DEBUG` off by default, `SECRET_KEY` required, ALLOWED_HOSTS/CORS/WS origin allow-lists, HSTS & headers |
+| SEC-08 / SEC-09 / SEC-19 uploads | Fixed — content sniffing (no SVG), size/pixel caps, UUID file names. *Still public via `/media/`* (names are now unguessable; signed URLs are future work) |
+| SEC-10 password validation, anonymous change-password 500 | Fixed |
+| SEC-11 expired invitations | Fixed (expiry enforced, `secrets` temp password) |
+| SEC-13 entitlements | Fixed — suspended orgs read-only, campaign & team limits when the plan defines them, AI rate limit. *Per-org AI token quotas not implemented* |
+| SEC-14 Stripe | Fixed — event de-dup (`StripeEvent`), `invoice.paid`, metadata checks, removed `timezone.utc` crash. *Customer objects / idempotency keys / reconcile task not implemented* |
+| SEC-15 account deletion | Fixed — password confirmation, owner-with-members block, Stripe cancel. *Meta deletion callback matching not changed* |
+| SEC-16 / SEC-17 deployment & nginx | Fixed — port 8000 unpublished, no `makemigrations` at boot, `.dockerignore`, pinned images, nginx rate limits / headers / safe logs / media sandbox / Dozzle allow-list (config validated with `nginx -t`) |
+| SEC-18 dependencies | Fixed — Python: 25 → 1 vulnerable package (Twisted, fix only in 26.10 RC); npm: 0 vulnerabilities |
+| SEC-20 WebSocket | Fixed — origin validation, safe disconnect, resilient push. *Token still in query string* |
+| SEC-22 token housekeeping | Fixed — daily purge task. *Refresh token still in `localStorage`* |
+| SEC-23 error leakage | Fixed in views listed by the audit |
+| SEC-24 Django hardening | Fixed |
+| SEC-25 formula injection | Fixed |
+| SEC-26 / SEC-27 / SEC-29 / SEC-30 | Fixed — test endpoint gated, schema & router root staff-only, default `IsAuthenticated`, bounded contact form |
+| SEC-28 admin | Fixed — real `UserAdmin` (hashed passwords). *MFA / IP allow-list not done* |
+| SEC-32 identifier injection | Fixed |
+| SEC-35 frontend route guards | Fixed — role-aware `ProtectedRoute` |
+| SEC-37 log redaction | Fixed — redaction filter |
+| SEC-38 snowflake ids | Fixed — per-process instance id |
+| SEC-41 / SEC-45 / SEC-46 / SEC-47 / SEC-48 | Fixed |
+| PERF-02 timeouts | Fixed — all 19 calls |
+| PERF-04 / PERF-13 indexes | Fixed — composite indexes (migrations) |
+| PERF-05 ad metrics bug | Fixed |
+| PERF-06 caching | Partially — public plan list cached with invalidation |
+| PERF-09 Celery limits | Partially — time limits, acks_late, prefetch 1 |
+| PERF-11 connection reuse | Fixed |
+| PERF-17 health | Fixed — `/healthz`, `/readyz` |
+| FPERF-01 / FPERF-04 bundle & console | Fixed — lazy routes (main chunk 1.75 MB → 453 KB), vendor chunks, `console` stripped in production |
+
+**Not done (needs a product/infra decision or larger refactor):** encrypting OAuth tokens at rest (several code paths look integrations up by token value), Meta long-lived token exchange/refresh, tokens in Authorization headers, httpOnly refresh cookie, account-enumeration-safe responses, Celery e-mail sending, serving HTTP with Gunicorn (PERF-01), central `OrgPermission` (ARCH-01) / 3-lookups-per-request (PERF-03), default pagination (changes response shape), Redis password, Docker multi-stage build, MFA for admin, GDPR export/soft-delete, `Decimal` money, TanStack Query migration, signed/private media storage, Twisted upgrade once 26.10 is released.
+
+---
+
 ## 1. Executive summary
 
 The product works and has a decent test base (228 test functions, 241 test runs passing), but **the authorization model has serious holes**. Several of them are exploitable by *any registered user* and were reproduced.
