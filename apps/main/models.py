@@ -145,6 +145,8 @@ class AdIntegration(models.Model):
     # Auth Tokens
     access_token = EncryptedTextField()
     refresh_token = EncryptedTextField(null=True, blank=True)
+    # Provider-side user id of the person who connected this account (e.g. Facebook user id).
+    external_user_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     # SHA-256 of access_token (blind index) — the token itself is stored encrypted.
     access_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True, editable=False)
     token_expires_at = models.DateTimeField(null=True, blank=True)

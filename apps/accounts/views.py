@@ -543,3 +543,41 @@ class WebSocketTicketView(GenericAPIView):
         ticket = secrets.token_urlsafe(32)
         cache.set(f"wsticket:{ticket}", str(request.user.id), 30)
         return Response({"ticket": ticket, "expires_in": 30})
+
+
+class ExportMyDataView(GenericAPIView):
+    """GET /accounts/export-data/ — GDPR-style export of the caller's personal data (JSON download)."""
+    permission_classes = [IsRegularPlatformUser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'download'
+
+    def get(self, request):
+        import json
+        from django.http import HttpResponse
+        from apps.main.models import OrganizationMember
+
+        user = request.user
+        memberships = OrganizationMember.objects.filter(user=user).select_related('organization')
+        payload = {
+            "exported_at": timezone.now().isoformat(),
+            "profile": {
+                "id": str(user.id), "email": user.email, "full_name": user.full_name,
+                "phone_number": user.phone_number, "username": user.username, "gender": user.gender,
+                "age": user.age, "date_of_birth": user.date_of_birth.isoformat() if user.date_of_birth else None,
+                "timezone": user.timezone, "joined_at": user.joined_at.isoformat() if user.joined_at else None,
+                "last_login": user.last_login.isoformat() if user.last_login else None,
+            },
+            "organizations": [
+                {"name": m.organization.name, "role": m.role, "status": m.status,
+                 "owned_by_you": m.organization.owner_id == user.id}
+                for m in memberships
+            ],
+            "notifications": list(
+                Notification.objects.filter(user=user).order_by('-created_at')
+                .values('message', 'read', 'created_at')[:5000]
+            ),
+            "notification_settings": list(NotificationSetting.objects.filter(user=user).values()),
+        }
+        response = HttpResponse(json.dumps(payload, default=str, indent=2), content_type='application/json')
+        response['Content-Disposition'] = 'attachment; filename="my-adportal-data.json"'
+        return response

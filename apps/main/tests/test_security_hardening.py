@@ -430,3 +430,33 @@ class RefreshCookieTests(MainTestBase):
         self.client.credentials()
         again = self.client.post("/api/v1/accounts/token/refresh/", {}, format="json", HTTP_X_AUTH_MODE="cookie")
         self.assertIn(again.status_code, (400, 401))
+
+
+class PrivacyTests(MainTestBase):
+    def test_export_my_data(self):  # GDPR
+        res = self.client.get("/api/v1/accounts/export-data/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("attachment", res["Content-Disposition"])
+        data = res.json()
+        self.assertEqual(data["profile"]["email"], "owner@example.com")
+        self.assertEqual(data["organizations"][0]["role"], "OWNER")
+        self.assertNotIn("password", str(data).lower())
+
+    def test_meta_deletion_matches_only_facebook_user_id(self):  # SEC-15
+        from apps.accounts.services import delete_facebook_user_data
+        mine = self.create_integration("META")
+        AdIntegration.objects.filter(pk=mine.pk).update(external_user_id="fb-123", ad_account_id="act_999")
+        other_owner = self.create_user(email="oo3@example.com")
+        other_org = self.create_organization(other_owner, name="Other3")
+        theirs = AdIntegration.objects.create(
+            organization=other_org, platform="META", access_token="t", ad_account_id="999", external_user_id="fb-777",
+        )
+        # an unrelated customer whose ad-account id equals the uid must NOT be touched
+        AdIntegration.objects.create(
+            organization=other_org, platform="TIKTOK", access_token="t2", ad_account_id="fb-123",
+        )
+        self.assertEqual(delete_facebook_user_data("fb-123"), 1)
+        self.assertFalse(AdIntegration.objects.filter(pk=mine.pk).exists())
+        self.assertTrue(AdIntegration.objects.filter(pk=theirs.pk).exists())
+        self.assertEqual(AdIntegration.objects.filter(platform="TIKTOK").count(), 1)
+        self.assertTrue(self.org.__class__.objects.filter(pk=self.org.pk).exists())

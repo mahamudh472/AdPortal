@@ -451,6 +451,7 @@ class MetaCallback(APIView):
             defaults={
                 "access_token": access_token,
                 "token_expires_at": expires_at,
+                "external_user_id": str(me.get('id') or ''),
                 "account_name": me.get('name')
             }
         )

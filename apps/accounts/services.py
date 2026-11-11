@@ -7,6 +7,7 @@ Views should stay thin HTTP adapters; all non-trivial logic belongs here.
 """
 
 import base64
+import time
 import hashlib
 import hmac
 import json
@@ -144,93 +145,18 @@ def delete_all_user_data(user) -> dict:
     return summary
 
 
-def resolve_users_by_facebook_uid(facebook_uid: str) -> set:
-    """
-    Find all local User instances that are linked to the given Facebook UID.
+def delete_facebook_user_data(facebook_uid: str) -> int:
+    """Delete the Meta connections that belong to this Facebook user.
 
-    Meta may store the UID as:
-      - The raw UID in ad_account_id (rare)
-      - "act_<UID>" in ad_account_id (ad-account format)
-      - The UID in page_id
-
-    Args:
-        facebook_uid: The Facebook user ID extracted from the signed_request.
-
-    Returns:
-        A (possibly empty) set of User instances to clean up.
+    Integrations are matched on the Facebook user id stored when the account was
+    connected (``AdIntegration.external_user_id``) — never on ad-account / page ids, which
+    are different identifiers and could wipe another customer's data. Only the data
+    received from Facebook (the integration, its tokens and everything cascading from it)
+    is removed; the customer's account and organization are kept.
     """
     from apps.main.models import AdIntegration
 
-    users: set = set()
-
-    meta_integrations = (
-        AdIntegration.objects.filter(platform="META")
-        .select_related("organization__owner")
-    )
-
-    for integration in meta_integrations:
-        if (
-            integration.ad_account_id == facebook_uid
-            or integration.ad_account_id == f"act_{facebook_uid}"
-            or integration.page_id == facebook_uid
-        ):
-            users.add(integration.organization.owner)
-
-    return users
-
-
-def handle_meta_data_deletion(signed_request: str) -> dict:
-    """
-    Orchestrate the full Meta Data Deletion Callback flow.
-
-    Steps:
-      1. Verify META_APP_SECRET is configured.
-      2. Verify the signed_request signature.
-      3. Extract the Facebook user ID from the payload.
-      4. Resolve and delete all matching local users' data.
-      5. Return the confirmation envelope Meta requires.
-
-    Args:
-        signed_request: The raw signed_request string posted by Meta.
-
-    Returns:
-        A dict with "url" and "confirmation_code" ready to be returned as JSON.
-
-    Raises:
-        MetaAppSecretNotConfigured: If META_APP_SECRET is absent in settings.
-        MetaSignedRequestMissing:   If signed_request is empty / None.
-        MetaSignedRequestInvalid:   If the signature cannot be verified.
-    """
-    if not signed_request:
-        raise MetaSignedRequestMissing("signed_request field is required.")
-
-    app_secret = getattr(settings, "META_APP_SECRET", None)
-    if not app_secret:
-        raise MetaAppSecretNotConfigured("META_APP_SECRET is not configured on the server.")
-
-    payload = parse_meta_signed_request(signed_request, app_secret)
-
-    facebook_uid: str = payload.get("user_id", "")
-    if not facebook_uid:
-        raise MetaSignedRequestInvalid("No user_id found in signed_request payload.")
-
-    users = resolve_users_by_facebook_uid(facebook_uid)
-
-    if users:
-        for user in users:
-            delete_all_user_data(user)
-    else:
-        logger.warning(
-            "[MetaDataDeletion] No local user found for Facebook UID %s. "
-            "Acknowledging deletion request without local changes.",
-            facebook_uid,
-        )
-
-    confirmation_code = uuid.uuid4().hex[:16].upper()
-    frontend_url = getattr(settings, "FRONTEND_URL", "")
-    status_url = f"{frontend_url}/data-deletion?code={confirmation_code}"
-
-    return {
-        "url": status_url,
-        "confirmation_code": confirmation_code,
-    }
+    qs = AdIntegration.objects.filter(platform="META", external_user_id=facebook_uid)
+    count = qs.count()
+    qs.delete()
+    return count
