@@ -220,3 +220,25 @@ class ScheduledReportDetailView(RequiredOrganizationIDMixin, RetrieveUpdateAPIVi
 
     def get_queryset(self):
         return ScheduledReport.objects.filter(organization__snowflake_id=self.get_org_id())
+
+
+class ReportDownloadView(RequiredOrganizationIDMixin, GenericAPIView):
+    """GET /analysis/reports/<id>/download/<filename>?org_id= — private, membership-checked download."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    throttle_scope = 'download'
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        return [ScopedRateThrottle()]
+
+    def get(self, request, pk, filename=None, *args, **kwargs):
+        from django.http import FileResponse, Http404
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        report = Report.objects.filter(pk=pk, organization=organization).first()
+        if not report or not report.file:
+            raise Http404
+        try:
+            handle = report.file.open('rb')
+        except FileNotFoundError:
+            raise Http404
+        return FileResponse(handle, as_attachment=True, filename=report.name or 'report.xlsx')

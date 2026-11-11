@@ -25,6 +25,18 @@ class AdminNotificationSettingsSerializer(serializers.ModelSerializer):
 
 
 class AdminReportSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+
+    def get_file(self, obj):
+        if not obj.file:
+            return None
+        import os
+        from django.urls import reverse
+        ext = os.path.splitext(obj.file.name)[1] or '.xlsx'
+        url = reverse('admin-report-file', kwargs={'report_id': obj.pk, 'filename': f'report{ext}'})
+        request = self.context.get('request')
+        return request.build_absolute_uri(url) if request else url
+
     class Meta:
         model = AdminReport
         fields = ['id', 'name', 'created_at', 'report_type', 'status', 'included_metrics', 'start_date', 'end_date', 'file', 'file_size', 'download_count', 'generated_by']

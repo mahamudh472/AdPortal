@@ -359,3 +359,32 @@ class TokenEncryptionTests(MainTestBase):
         with connection.cursor() as cur:
             cur.execute("SELECT access_token FROM main_adintegration WHERE id=%s", [integ.id])
             self.assertTrue(cur.fetchone()[0].startswith("enc1:"))
+
+
+class PrivateReportTests(MainTestBase):
+    def _report(self):
+        from django.core.files.base import ContentFile
+        from apps.analysis.models import Report
+        r = Report.objects.create(organization=self.org, name="W.xlsx", report_type="weekly", status="COMPLETED")
+        r.file.save("W.xlsx", ContentFile(b"PK-fake-xlsx"), save=True)
+        return r
+
+    def test_report_list_exposes_authenticated_url_not_media(self):  # SEC-09
+        self._report()
+        res = self.client.get(f"/api/v1/analysis/reports/?org_id={self.org_id}")
+        file_url = res.json()["results"][0]["file"]
+        self.assertIn("/analysis/reports/", file_url)
+        self.assertNotIn("/media/", file_url)
+
+    def test_member_downloads_outsider_and_anonymous_cannot(self):
+        r = self._report()
+        url = f"/api/v1/analysis/reports/{r.pk}/download/report.xlsx?org_id={self.org_id}"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(b"".join(res.streaming_content), b"PK-fake-xlsx")
+        outsider = self.create_user(email="o2@example.com")
+        self.create_organization(outsider, name="Other2")
+        self.authenticate(outsider)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.credentials()
+        self.assertEqual(self.client.get(url).status_code, 401)

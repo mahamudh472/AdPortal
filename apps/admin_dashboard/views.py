@@ -410,3 +410,19 @@ class ContactUsMessageViewSet(viewsets.ModelViewSet):
                 Q(email__icontains=q) | Q(message__icontains=q) | Q(name__icontains=q) | Q(subject__icontains=q)
             )
         return super().list(request, *args, **kwargs)
+
+
+class AdminReportFileView(generics.GenericAPIView):
+    """GET /admin/reports/<id>/file/<filename> — staff-only download of an admin report."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, report_id, filename=None, *args, **kwargs):
+        from django.http import FileResponse, Http404
+        report = AdminReport.objects.filter(pk=report_id).first()
+        if not report or not report.file:
+            raise Http404
+        try:
+            handle = report.file.open('rb')
+        except FileNotFoundError:
+            raise Http404
+        return FileResponse(handle, as_attachment=True, filename=report.name or 'report.xlsx')

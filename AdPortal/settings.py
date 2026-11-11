@@ -239,6 +239,7 @@ REST_FRAMEWORK = {
         'otp_send': os.getenv('THROTTLE_OTP_SEND', '5/hour'),
         'contact': os.getenv('THROTTLE_CONTACT', '5/hour'),
         'ai': os.getenv('THROTTLE_AI', '20/min'),
+        'download': os.getenv('THROTTLE_DOWNLOAD', '30/min'),
     },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
