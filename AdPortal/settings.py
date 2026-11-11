@@ -369,11 +369,20 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.main.tasks.generate_ai_insights_for_active_campaigns',
         'schedule': crontab(hour=2, minute=0),
     },
+    # Every day at 03:30 UTC — purge expired OTPs / JWT blacklist rows / old read notifications
+    'purge-expired-auth-data': {
+        'task': 'apps.accounts.tasks.purge_expired_auth_data',
+        'schedule': crontab(hour=3, minute=30),
+    },
 }
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+
+    "filters": {
+        "redact_secrets": {"()": "apps.main.utils.log_filters.RedactSecretsFilter"},
+    },
 
     "formatters": {
         "verbose": {
@@ -386,6 +395,7 @@ LOGGING = {
         "console": {
             "level": "INFO",
             "class": "logging.StreamHandler",
+            "filters": ["redact_secrets"],
             "formatter": "verbose",
         },
         "file": {
@@ -394,6 +404,7 @@ LOGGING = {
             "filename": "logs/app.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,             # keep last 5 files
+            "filters": ["redact_secrets"],
             "formatter": "verbose",
         },
         "error_file": {
@@ -402,6 +413,7 @@ LOGGING = {
             "filename": "logs/errors.log",
             "maxBytes": 10 * 1024 * 1024,  # 10 MB
             "backupCount": 5,
+            "filters": ["redact_secrets"],
             "formatter": "verbose",
         },
     },

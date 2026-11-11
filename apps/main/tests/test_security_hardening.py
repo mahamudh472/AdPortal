@@ -274,3 +274,26 @@ class EntitlementTests(MainTestBase):
         UsageRecord.objects.create(organization=self.org, subscription=sub, feature_key="campaign_limit",
                                    used=2, period_start=sub.current_period_start, period_end=sub.current_period_end)
         self.assertFalse(can_publish_campaign(self.org))
+
+
+class HousekeepingTests(MainTestBase):
+    def test_purge_task_removes_old_otps(self):
+        from apps.accounts.models import OTP
+        from apps.accounts.tasks import purge_expired_auth_data
+        user = self.create_user(email="h@example.com")
+        old = OTP.objects.create(user=user, code="123456", expires_at=timezone.now() - timedelta(days=3))
+        fresh = OTP.objects.create(user=user, code="654321", expires_at=timezone.now() + timedelta(minutes=5))
+        purge_expired_auth_data()
+        self.assertFalse(OTP.objects.filter(pk=old.pk).exists())
+        self.assertTrue(OTP.objects.filter(pk=fresh.pk).exists())
+
+    def test_log_redaction(self):
+        from apps.main.utils.log_filters import redact
+        out = redact("GET /x?access_token=EAAB123&a=1 Authorization: Bearer abc.def")
+        self.assertNotIn("EAAB123", out)
+        self.assertNotIn("abc.def", out)
+
+    def test_snowflake_ids_unique(self):
+        from apps.main.models import next_snowflake_id
+        ids = {next_snowflake_id() for _ in range(500)}
+        self.assertEqual(len(ids), 500)

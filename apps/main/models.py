@@ -1,3 +1,4 @@
+import os
 import uuid
 from django.db import models
 from django.conf import settings
@@ -7,7 +8,23 @@ from snowflake import SnowflakeGenerator
 from datetime import timedelta
 from apps.main.utils.safe_files import ad_asset_upload_to
 
-generator = SnowflakeGenerator(1)
+_generators = {}
+
+
+def next_snowflake_id():
+    """Per-process Snowflake generator (instance id derived from the PID).
+
+    A single module-level generator with a fixed instance id produced duplicate ids when
+    several processes (web, Celery workers, beat) created organizations concurrently.
+    """
+    pid = os.getpid()
+    gen = _generators.get(pid)
+    if gen is None:
+        import socket, zlib
+        instance = (zlib.crc32(socket.gethostname().encode()) ^ pid) % 1024
+        gen = _generators[pid] = SnowflakeGenerator(instance)
+    return next(gen)
+
 
 class Platform(models.TextChoices):
     META = 'META', 'Meta (Facebook/Instagram)'
@@ -79,7 +96,7 @@ class Organization(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.snowflake_id:
-            self.snowflake_id = next(generator)
+            self.snowflake_id = next_snowflake_id()
         super().save(*args, **kwargs)
     def __str__(self):
         return self.name or f"Organization {self.snowflake_id}"
