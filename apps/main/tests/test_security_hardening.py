@@ -501,3 +501,14 @@ class AiCapTests(MainTestBase):
             svc.generate_copy(self.org, "p", "a", "b", "friendly", "headline")
             with self.assertRaises(Throttled):
                 svc.generate_copy(self.org, "p", "a", "b", "friendly", "headline")
+
+
+class CampaignStatusCountsTests(MainTestBase):
+    def test_list_includes_status_counts(self):  # PERF-07
+        self.create_campaign("a", status="ACTIVE")
+        self.create_campaign("b", status="DRAFT")
+        self.create_campaign("c", status="DRAFT")
+        res = self.client.get(f"{BASE}/campaigns/?org_id={self.org_id}&status=DRAFT")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["count"], 2)
+        self.assertEqual(res.data["status_counts"], {"all": 3, "active": 1, "paused": 0, "draft": 2})

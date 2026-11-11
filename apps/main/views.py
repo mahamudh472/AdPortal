@@ -15,6 +15,7 @@ from .mixins import RequiredOrganizationIDMixin
 from .utils.user_pages import get_campaign_list_extras
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
+from django.db.models import Count
 from rest_framework.permissions import AllowAny
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
@@ -103,6 +104,21 @@ class CampaignListAPIView(RequiredOrganizationIDMixin, generics.ListAPIView):
         context = super().get_serializer_context()
         context['campaign_extras'] = getattr(self, '_campaign_extras', {})
         return context
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        # One GROUP BY replaces the four extra list calls the UI used for its tab badges.
+        organization = Organization.objects.filter(snowflake_id=self.get_org_id()).first()
+        rows = UnifiedCampaign.objects.filter(organization=organization).values('status').annotate(n=Count('id'))
+        counts = {r['status']: r['n'] for r in rows}
+        if isinstance(response.data, dict):
+            response.data['status_counts'] = {
+                'all': sum(counts.values()),
+                'active': counts.get('ACTIVE', 0),
+                'paused': counts.get('PAUSED', 0),
+                'draft': counts.get('DRAFT', 0),
+            }
+        return response
 
 class CampaignRetrieveUpdateDestroyAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CampaignSerializer
