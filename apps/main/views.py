@@ -16,6 +16,7 @@ from .utils.user_pages import get_campaign_list_extras
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from rest_framework.permissions import AllowAny
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 
@@ -168,6 +169,10 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
             response_status = status.HTTP_201_CREATED
 
         if not is_draft:
+            from apps.finance.entitlements import can_publish_campaign
+            if campaign.status == 'DRAFT' and not can_publish_campaign(organization):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Your plan's campaign limit has been reached. Upgrade to publish more campaigns.")
             service.publish_campaign(campaign, organization)
 
         campaign.refresh_from_db()
@@ -183,6 +188,8 @@ class CreateAdAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
 
 
 class AICopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ai'
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
     serializer_class = AICopyRequestSerializer
 
@@ -207,6 +214,8 @@ class AICopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVie
 
 
 class AIAdCopyGeneratorAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ai'
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
     serializer_class = AIAdCopySerializer
 
@@ -312,6 +321,8 @@ class AIOptimizationHistoryAPIView(RequiredOrganizationIDMixin, generics.Generic
 
 
 class AIOptimizationRunAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ai'
     """POST /main/ai-optimization/run/ — the "Optimize Now" button."""
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
     serializer_class = AIOptimizationSettingsSerializer

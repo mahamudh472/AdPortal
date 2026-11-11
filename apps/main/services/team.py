@@ -77,6 +77,11 @@ class TeamService:
             if user.is_staff or user.is_superuser:
                 raise ValidationError({'error': 'Cannot invite admin or superuser as organization member.'})
         
+        from apps.finance.entitlements import can_add_team_member
+        if not can_add_team_member(organization):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Your plan's team member limit has been reached. Upgrade to invite more members.")
+
         invitation = TeamInvitation.objects.create(
             email=email,
             role=role,

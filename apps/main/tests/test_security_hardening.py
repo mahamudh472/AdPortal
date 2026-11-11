@@ -228,3 +228,49 @@ class UploadSafetyTests(MainTestBase):
         self.assertEqual(excel_safe('=HYPERLINK("http://x")'), "'=HYPERLINK(\"http://x\")")
         self.assertEqual(excel_safe("normal"), "normal")
         self.assertEqual(excel_safe(5), 5)
+
+
+class EntitlementTests(MainTestBase):
+    def _subscribe(self, **limits):
+        from django.utils import timezone
+        from apps.finance.models import Plan, PlanFeature, Subscription
+        plan = Plan.objects.create(name="starter", price=10, interval="month")
+        for k, v in limits.items():
+            PlanFeature.objects.create(plan=plan, key=k, value=str(v))
+        return Subscription.objects.create(
+            organization=self.org, plan=plan, status="active",
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+        )
+
+    def test_suspended_org_is_read_only(self):  # SEC-13
+        from apps.main.models import Organization
+        Organization.objects.filter(pk=self.org.pk).update(status="SUSPENDED")
+        self.assertEqual(
+            self.client.get(f"{BASE}/organization/?org_id={self.org_id}").status_code, 200
+        )
+        res = self.client.post(f"{BASE}/invite-team-member/?org_id={self.org_id}",
+                               {"email": "x@example.com", "role": "MEMBER"}, format="json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_team_member_limit_enforced(self):  # SEC-13
+        self._subscribe(team_member_limit=1)  # owner already fills the single seat
+        res = self.client.post(f"{BASE}/invite-team-member/?org_id={self.org_id}",
+                               {"email": "x@example.com", "role": "MEMBER"}, format="json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_no_subscription_means_no_enforcement(self):
+        from unittest.mock import patch
+        with patch("apps.main.services.team.send_team_invitation_email"):
+            res = self.client.post(f"{BASE}/invite-team-member/?org_id={self.org_id}",
+                                   {"email": "y@example.com", "role": "MEMBER"}, format="json")
+        self.assertEqual(res.status_code, 200)
+
+    def test_campaign_limit_helper(self):  # SEC-13
+        from apps.finance.entitlements import can_publish_campaign
+        from apps.finance.models import UsageRecord
+        sub = self._subscribe(campaign_limit=2)
+        self.assertTrue(can_publish_campaign(self.org))
+        UsageRecord.objects.create(organization=self.org, subscription=sub, feature_key="campaign_limit",
+                                   used=2, period_start=sub.current_period_start, period_end=sub.current_period_end)
+        self.assertFalse(can_publish_campaign(self.org))

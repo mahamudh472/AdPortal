@@ -1,6 +1,14 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.main.models import OrganizationMember, Organization
 
+def _blocked_by_suspension(permission, request, organization) -> bool:
+    """Suspended organizations are read-only (audit SEC-13)."""
+    if request.method not in SAFE_METHODS and organization.status == 'SUSPENDED':
+        permission.message = "This organization is suspended. Contact support."
+        return True
+    return False
+
+
 class IsRegularPlatformUser(BasePermission):
     """
     Composite permission:
@@ -37,6 +45,9 @@ class IsOrganizationMember(BasePermission):
         try:
             organization = Organization.objects.get(snowflake_id=org_id)
         except Organization.DoesNotExist:
+            return False
+
+        if _blocked_by_suspension(self, request, organization):
             return False
 
         return OrganizationMember.objects.filter(
@@ -84,6 +95,9 @@ class IsAdminOrOwnerOfOrganization(BasePermission):
         try:
             organization = Organization.objects.get(snowflake_id=org_id)
         except Organization.DoesNotExist:
+            return False
+
+        if _blocked_by_suspension(self, request, organization):
             return False
 
         return OrganizationMember.objects.filter(
