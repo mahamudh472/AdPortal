@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from urllib3 import request
 from .models import NotificationSetting, User, Notification, ContactUsMessage
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -11,6 +13,16 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'full_name', 'email', 'password', 'timezone']
+        extra_kwargs = {'password': {'write_only': True}}
+
+    def validate(self, attrs):
+        candidate = User(email=attrs.get('email'), full_name=attrs.get('full_name'))
+        try:
+            validate_password(attrs.get('password'), candidate)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'password': list(exc.messages)})
+        return attrs
+
     def create(self, validated_data):
         user = User.objects.create_user(
             email=validated_data['email'],
@@ -43,6 +55,11 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs['new_password'] != attrs['confirm_password']:
             raise serializers.ValidationError("New passwords do not match")
+        request = self.context.get('request')
+        try:
+            validate_password(attrs['new_password'], getattr(request, 'user', None))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'new_password': list(exc.messages)})
         return attrs
     
 
@@ -50,7 +67,14 @@ class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(read_only=True)
     class Meta:
         model = User
-        exclude = ['password', 'groups', 'user_permissions']
+        # Whitelist only self-editable profile fields. Privileged / system fields
+        # (is_staff, is_superuser, is_active, status, last_login, ...) must never
+        # be writable through the profile endpoint.
+        fields = [
+            'id', 'email', 'username', 'full_name', 'phone_number', 'avatar',
+            'gender', 'age', 'date_of_birth', 'timezone', 'joined_at',
+        ]
+        read_only_fields = ['id', 'joined_at']
     
 class SimpleUserSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()

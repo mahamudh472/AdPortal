@@ -1,4 +1,3 @@
-import random
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
@@ -23,9 +22,15 @@ from apps.accounts.serializers import (
 from rest_framework.pagination import PageNumberPagination
 from .models import NotificationSetting, User, OTP, Notification
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from .otp import issue_otp, consume_otp, check_otp
 
 class RegisterView(GenericAPIView):
     serializer_class = RegisterSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
@@ -35,13 +40,8 @@ class RegisterView(GenericAPIView):
         if serializer.is_valid():
             user = serializer.save(is_active=False)
 
-            otp = str(random.randint(100000, 999999))
-            OTP.objects.create(
-                user=user,
-                code=otp,
-                expires_at=timezone.now() + timezone.timedelta(minutes=10)
-            )
-            
+            otp = issue_otp(user)
+
             try:
                 send_otp_email(
                     user_email=user.email,
@@ -63,85 +63,67 @@ class RegisterView(GenericAPIView):
 
 class VerifyEmailView(GenericAPIView):
     serializer_class = VerifyEmailSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp'
 
     def post(self, request):
+        email = request.data.get('email')
+        input_otp = request.data.get('otp')
+
+        if not email or not input_otp:
+            return Response({"error": "Email and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        ok, error = consume_otp(user, input_otp)
+        if not ok:
+            return Response({"error": error}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_active = True
+        user.save(update_fields=['is_active'])
         try:
-            email= request.data.get('email')
-            input_otp = request.data.get('otp')
-            
-            if not email or not input_otp:
-                return Response({"error": "Email and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            user= User.objects.filter(email=email).first()
-            if not user:
-                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            send_welcome_email(
+                user_email=user.email,
+                user_name=user.full_name or user.email.split('@')[0]
+            )
+        except Exception:
+            pass
+        return Response({"message": f"Email {email} successfully verified"}, status=status.HTTP_200_OK)
 
-            if OTP.objects.filter(user__email=email, code=input_otp).exists():
-                otp_record = OTP.objects.get(user__email=email, code=input_otp)
-                if otp_record.is_valid():
-                    user = otp_record.user
-                    user.is_active = True
-                    user.save()
-                    otp_record.is_used = True
-                    otp_record.save()
-                    
-                    # Send welcome email after email verification
-                    try:
-                        send_welcome_email(
-                            user_email=user.email,
-                            user_name=user.full_name or user.email.split('@')[0]
-                        )
-                    except Exception as e:
-                        pass
-                    return Response({"message": f"Email {email} successfully verified"}, status=status.HTTP_200_OK)
-                    
-                else:
-                    return Response({"error": "OTP is expired or already used"}, status=status.HTTP_400_BAD_REQUEST)
 
-            
-            return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({
-                "error": "Failed to verify email.",
-                "detail": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    
 class PasswordResetConfirmView(GenericAPIView):
     serializer_class = ResetPasswordConfirmSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp'
 
     def post(self, request):
+        email = request.data.get('email')
+        input_otp = request.data.get('otp')
+        new_password = request.data.get('new_password')
+
+        if not email or not input_otp or not new_password:
+            return Response({"error": "Email, OTP, and new password are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Validate the password first so a weak password doesn't burn the OTP.
         try:
-            email= request.data.get('email')
-            input_otp = request.data.get('otp')
-            new_password = request.data.get('new_password')
-            
-            if not email or not input_otp or not new_password:
-                return Response({"error": "Email, OTP, and new password are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            user= User.objects.filter(email=email).first()
-            if not user:
-                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            validate_password(new_password, user)
+        except DjangoValidationError as exc:
+            return Response({"new_password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
-            if OTP.objects.filter(user__email=email, code=input_otp).exists():
-                otp_record = OTP.objects.get(user__email=email, code=input_otp)
-                if otp_record.is_valid():
-                    user = otp_record.user
-                    user.set_password(new_password)
-                    user.save()
-                    otp_record.is_used = True
-                    otp_record.save()
-                    return Response({"message": f"Password successfully reset for {email}"}, status=status.HTTP_200_OK)
-                else:
-                    return Response({"error": "OTP is expired or already used"}, status=status.HTTP_400_BAD_REQUEST)
+        ok, error = consume_otp(user, input_otp)
+        if not ok:
+            return Response({"error": error}, status=status.HTTP_400_BAD_REQUEST)
 
-            
-            return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({
-                "error": "Failed to reset password.",
-                "detail": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        user.set_password(new_password)
+        user.save()
+        return Response({"message": f"Password successfully reset for {email}"}, status=status.HTTP_200_OK)
+
 
 class ProfileView(GenericAPIView):
     serializer_class = SimpleUserSerializer
@@ -167,9 +149,14 @@ class UpdateProfileView(GenericAPIView):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
 
 
 class SendOTPView(GenericAPIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp_send'
+
     def post(self, request):
         email = request.data.get('email')
 
@@ -177,14 +164,9 @@ class SendOTPView(GenericAPIView):
         if not user:
             return Response({"error": "User with this email does not exist"}, status=status.HTTP_400_BAD_REQUEST)
 
-        otp = str(random.randint(100000, 999999))
-        OTP.objects.create(
-            user=user,
-            code=otp,
-            expires_at=timezone.now() + timezone.timedelta(minutes=10)
-        )
-                
-        try:    
+        otp = issue_otp(user)
+
+        try:
             send_otp_email(
                 user_email=user.email,
                 user_name=user.full_name or user.email.split('@')[0],
@@ -201,10 +183,10 @@ class SendOTPView(GenericAPIView):
 
 class ChangePasswordView(GenericAPIView):
     serializer_class = ChangePasswordSerializer
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = self.serializer_class(data=request.data)
+        serializer = self.serializer_class(data=request.data, context={'request': request})
         if serializer.is_valid():
             user = request.user
             if not user:
@@ -393,6 +375,9 @@ class MetaDataDeletionCallbackView(GenericAPIView):
 
 
 class CheckOTPView(GenericAPIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp'
+
     def post(self, request):
         email = request.data.get('email')
         input_otp = request.data.get('otp')
@@ -404,14 +389,10 @@ class CheckOTPView(GenericAPIView):
         if not user:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if OTP.objects.filter(user__email=email, code=input_otp).exists():
-            otp_record = OTP.objects.get(user__email=email, code=input_otp)
-            if otp_record.is_valid():
-                return Response({"message": "OTP is valid"}, status=status.HTTP_200_OK)
-            else:
-                return Response({"error": "OTP is expired or already used"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+        ok, error = check_otp(user, input_otp)
+        if not ok:
+            return Response({"error": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "OTP is valid"}, status=status.HTTP_200_OK)
 
 class ContactUsView(GenericAPIView):
     permission_classes = []

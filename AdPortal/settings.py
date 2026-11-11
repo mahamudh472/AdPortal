@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-import os, datetime
+import os, sys, datetime
 from dotenv import load_dotenv
 
 # In Docker, rely on container environment variables from compose/env_file.
@@ -28,12 +28,19 @@ from .unfold_conf import UNFOLD
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-e7iz@(00au76(vdf40adk+@dbtl_wvgf@=zbh+u2szp(z1zu68')
+# SECURITY: DEBUG defaults to OFF. Set DEBUG=True explicitly in local .env only.
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG or 'test' in sys.argv:
+        # Throwaway key for local development / tests only (never used when DEBUG is off).
+        SECRET_KEY = 'dev-only-insecure-key-' + 'x' * 40
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured('SECRET_KEY environment variable is required when DEBUG is off.')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 
 
 # Application definition
@@ -210,8 +217,26 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('THROTTLE_ANON', '60/min'),
+        'user': os.getenv('THROTTLE_USER', '600/min'),
+        'login': os.getenv('THROTTLE_LOGIN', '10/min'),
+        'auth': os.getenv('THROTTLE_AUTH', '10/hour'),
+        'otp': os.getenv('THROTTLE_OTP', '10/min'),
+        'otp_send': os.getenv('THROTTLE_OTP_SEND', '5/hour'),
+    },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+if TESTING:
+    # Keep the suite deterministic; throttle behaviour is covered by dedicated tests.
+    REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
+        k: '100000/min' for k in REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']
+    }
+
 SPECTACULAR_SETTINGS = {
     'TITLE': 'AdPortal API',
     'DESCRIPTION': 'API documentation for AdPortal.',
@@ -262,7 +287,8 @@ GOOGLE_ADS_REFRESH_TOKEN = os.getenv("GOOGLE_ADS_REFRESH_TOKEN")
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True
+# Allow-all only for local development (or when explicitly requested via env).
+CORS_ALLOW_ALL_ORIGINS = DEBUG or os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -292,11 +318,26 @@ extra_csrf_trusted_origins = [
 ]
 CSRF_TRUSTED_ORIGINS += extra_csrf_trusted_origins
 
+# CORS allow-list (used when CORS_ALLOW_ALL_ORIGINS is off): trusted origins + frontend URL.
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(
+    [o for o in CSRF_TRUSTED_ORIGINS]
+    + [os.getenv('FRONTEND_URL', '').strip().rstrip('/')]
+    + [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')]
+))
+CORS_ALLOWED_ORIGINS = [o for o in CORS_ALLOWED_ORIGINS if o]
+
 USE_HTTPS = os.getenv('USE_HTTPS', 'False') == 'True'
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = USE_HTTPS
 CSRF_COOKIE_SECURE = USE_HTTPS
 SECURE_SSL_REDIRECT = USE_HTTPS
+if USE_HTTPS:
+    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")

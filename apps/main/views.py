@@ -7,7 +7,7 @@ from .serializers import (
     AIAdCopySerializer, AIInsightDetailSerializer, AudienceReachRequestSerializer, AIOptimizationSettingsSerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer
 )
 from .models import AdAsset, UnifiedCampaign, Organization, CampaignBudget
-from apps.accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember
+from apps.accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember, IsOrgAdminForWrites
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
@@ -20,9 +20,23 @@ from rest_framework.views import APIView
 
 
 
+def _org_campaign_or_404(view, campaign_id):
+    """Return the UnifiedCampaign only if it belongs to the request's org."""
+    from django.http import Http404
+    try:
+        campaign_id = int(campaign_id)
+    except (TypeError, ValueError):
+        raise ValidationError({'campaign_id': 'Invalid campaign id'})
+    org = Organization.objects.filter(snowflake_id=view.get_org_id()).first()
+    campaign = UnifiedCampaign.objects.filter(id=campaign_id, organization=org).first()
+    if not campaign:
+        raise Http404
+    return campaign
+
+
 class OrganizationRetrieveUpdateAPIView(RequiredOrganizationIDMixin, generics.RetrieveUpdateAPIView):
     serializer_class = OrganizationSerializer
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember, IsOrgAdminForWrites]
 
     def get_object(self):
         user = self.request.user
@@ -360,12 +374,12 @@ class AudienceReachEstimateAPIView(RequiredOrganizationIDMixin, generics.Generic
 
 
 class CreatePlatformCampaignAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         from .utils.tiktok_handler import create_platform_campaign_for_tiktok
         campaign_id = request.data.get('campaign_id')
-        campaign = UnifiedCampaign.objects.get(id=campaign_id)
+        campaign = _org_campaign_or_404(self, campaign_id)
         create_full_ad_for_tiktok(campaign, campaign.organization.integrations.get(platform='TIKTOK'))
         # Implementation for creating platform-specific campaigns
         return Response({'message': 'Platform campaign created successfully'}, status=status.HTTP_201_CREATED)  
@@ -507,7 +521,7 @@ class SyncAnalyticsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView)
 
 class MetaCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     """POST {org_id, campaign_id, ?ad_asset_id}"""
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         from apps.main.utils.meta_engine.manage_ad import create_ad_on_meta, MetaAdCreationError
@@ -523,8 +537,11 @@ class MetaCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
 
         ad_asset = None
         if ad_asset_id:
-            ad_asset = AdAsset.objects.filter(id=ad_asset_id).first()
+            ad_asset = AdAsset.objects.filter(
+                id=ad_asset_id, organization__snowflake_id=self.get_org_id()
+            ).first()
 
+        _org_campaign_or_404(self, campaign_id)
         try:
             local_ad = create_ad_on_meta(
                 unified_campaign_id=int(campaign_id),
@@ -550,7 +567,7 @@ class MetaCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
 
 class MetaUpdateCampaignTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     """POST {org_id, campaign_id, ?ad_asset_id}"""
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         from apps.main.utils.meta_engine.manage_ad import update_campaign_on_meta
@@ -566,8 +583,11 @@ class MetaUpdateCampaignTestAPIView(RequiredOrganizationIDMixin, generics.Generi
 
         ad_asset = None
         if ad_asset_id:
-            ad_asset = AdAsset.objects.filter(id=ad_asset_id).first()
+            ad_asset = AdAsset.objects.filter(
+                id=ad_asset_id, organization__snowflake_id=self.get_org_id()
+            ).first()
 
+        _org_campaign_or_404(self, campaign_id)
         try:
             result = update_campaign_on_meta(
                 unified_campaign_id=int(campaign_id),
@@ -588,7 +608,7 @@ class MetaUpdateCampaignTestAPIView(RequiredOrganizationIDMixin, generics.Generi
 
 class MetaDeleteAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
     """POST {org_id, campaign_id, ?delete_level}"""
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         from apps.main.utils.meta_engine.manage_ad import delete_ad_on_meta
@@ -608,6 +628,7 @@ class MetaDeleteAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        _org_campaign_or_404(self, campaign_id)
         try:
             errors = delete_ad_on_meta(
                 unified_campaign_id=int(campaign_id),
@@ -636,7 +657,7 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
     Test-only endpoint to trigger real provider-side ad creation for one
     UnifiedCampaign on one platform.
     """
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         from apps.main.utils.meta_engine.manage_ad import MetaAdCreationError
@@ -818,7 +839,7 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
 
 
 class ApplyBudgetRecommendationAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
-    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         snowflake_id = self.get_org_id()

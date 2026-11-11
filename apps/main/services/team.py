@@ -1,4 +1,5 @@
-import random
+import secrets
+import string
 from django.db import models
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -34,7 +35,11 @@ class TeamService:
     def update_team_member(self, instance, new_role, user_performing_update):
         if instance.role == 'OWNER':
             return Response({'error': 'Cannot modify the owner of the organization.'}, status=status.HTTP_403_FORBIDDEN)
-        
+        if new_role not in ('ADMIN', 'MEMBER'):
+            return Response({'error': 'Invalid role. Allowed: ADMIN, MEMBER.'}, status=status.HTTP_400_BAD_REQUEST)
+        if instance.user_id == user_performing_update.id:
+            return Response({'error': 'You cannot change your own role.'}, status=status.HTTP_403_FORBIDDEN)
+
         old_role = instance.role
         instance.role = new_role
         instance.save()
@@ -112,12 +117,12 @@ class TeamService:
         except (DjangoValidationError, ValueError):
             raise ValidationError({'error': 'Invalid or expired invitation token.'})
 
-        if not invitation:
+        if not invitation or invitation.is_expired():
             raise ValidationError({'error': 'Invalid or expired invitation token.'})
         
         user = User.objects.filter(email=invitation.email).first()
         if not user:
-            temp_password = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=10))
+            temp_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
             user = User.objects.create_user(
                 email=invitation.email,
                 password=temp_password,

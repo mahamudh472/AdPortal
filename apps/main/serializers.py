@@ -131,6 +131,8 @@ class CampaignSerializer(serializers.ModelSerializer):
             'total_budget', 'total_spent', 'remaining_budget', 'budgets', 'file_url',
             'platform_sync_statuses', 'placements'
         ]
+        # Status transitions go through /campaigns/<id>/toggle-status/ only.
+        read_only_fields = ['status', 'created_at']
 
     def get_placements(self, obj):
         from apps.main.utils.user_pages import get_campaign_placements
@@ -518,6 +520,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
         fields = ['snowflake_id', 'name', 'website', 'industry', 'company_size', 'created_at', 'status']
+        # Suspension is a platform-admin action (see /admin/organizations/).
+        read_only_fields = ['snowflake_id', 'created_at', 'status']
 
 class TeamMemberSerializer(serializers.ModelSerializer):
     user = SimpleUserSerializer(read_only=True)

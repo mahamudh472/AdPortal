@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.main.models import OrganizationMember, Organization
 
 class IsRegularPlatformUser(BasePermission):
@@ -39,7 +39,32 @@ class IsOrganizationMember(BasePermission):
         except Organization.DoesNotExist:
             return False
 
-        return OrganizationMember.objects.filter(user=user, organization=organization).exists()    
+        return OrganizationMember.objects.filter(
+            user=user, organization=organization, status='ACTIVE'
+        ).exists()
+
+class IsOrgAdminForWrites(BasePermission):
+    """
+    Read-only methods: any active member of the organization.
+    Write methods: only ADMIN / OWNER of the organization.
+    Use together with IsOrganizationMember.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        org_id = request.query_params.get("org_id")
+        if not org_id:
+            return False
+        return OrganizationMember.objects.filter(
+            user=user,
+            organization__snowflake_id=org_id,
+            status='ACTIVE',
+            role__in=['ADMIN', 'OWNER'],
+        ).exists()
 
 class IsAdminOrOwnerOfOrganization(BasePermission):
     """
@@ -64,5 +89,6 @@ class IsAdminOrOwnerOfOrganization(BasePermission):
         return OrganizationMember.objects.filter(
             user=user,
             organization=organization,
+            status='ACTIVE',
             role__in=['ADMIN', 'OWNER']
         ).exists()

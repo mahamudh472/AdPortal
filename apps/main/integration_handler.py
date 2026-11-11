@@ -1,6 +1,6 @@
 from asyncio import threads
 from datetime import timedelta
-from apps.accounts.permissions import IsOrganizationMember, IsRegularPlatformUser
+from apps.accounts.permissions import IsOrganizationMember, IsRegularPlatformUser, IsAdminOrOwnerOfOrganization
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from urllib.parse import urlencode
@@ -646,7 +646,7 @@ class GoogleCallback(APIView):
         return redirect(settings.FRONTEND_URL+"/google-auth-callback")
 
 class AdProfileListView(RequiredOrganizationIDMixin, APIView):
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
     def get(self, request, *args, **kwargs):
         snowflake_id = self.get_org_id()
@@ -689,7 +689,7 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
         return Response(profiles)
 
 class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         platform = str(request.data.get('platform', '')).upper()
@@ -766,7 +766,7 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
 
 class MetaPageListView(RequiredOrganizationIDMixin, APIView):
     """GET — List Facebook Pages the user manages (for selecting page_id)."""
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
     def get(self, request, *args, **kwargs):
         snowflake_id = self.get_org_id()
@@ -783,7 +783,7 @@ class MetaPageListView(RequiredOrganizationIDMixin, APIView):
 
 class SelectMetaPageView(RequiredOrganizationIDMixin, APIView):
     """POST {page_id} — Store the selected Facebook Page ID on the Meta integration."""
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         page_id = request.data.get('page_id')
@@ -807,7 +807,7 @@ class SelectMetaPageView(RequiredOrganizationIDMixin, APIView):
         return Response({"success": "Facebook Page selected.", "page_id": integration.page_id})
 
 class DisconnectAdIntegrationView(RequiredOrganizationIDMixin, APIView):
-    permission_classes = [IsRegularPlatformUser]
+    permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
         platform = request.data.get('platform', None)
