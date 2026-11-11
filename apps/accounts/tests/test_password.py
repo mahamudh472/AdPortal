@@ -22,14 +22,14 @@ class SendOTPTests(AdPortalTestBase):
     def _reset_url(self):
         return reverse("password_reset")
 
-    @patch("apps.accounts.views.send_otp_email")
+    @patch("apps.accounts.email_utils.send_otp_email")
     def test_send_otp_success(self, mock_email):
         mock_email.return_value = None
         self.create_user(email="otp@example.com")
         res = self.client.post(self._url(), {"email": "otp@example.com"}, format="json")
         self.assertEqual(res.status_code, 200)
 
-    @patch("apps.accounts.views.send_otp_email", side_effect=Exception("SMTP down"))
+    @patch("apps.accounts.email_utils.send_otp_email", side_effect=Exception("SMTP down"))
     def test_send_otp_email_failure_still_returns_200(self, mock_email):
         self.create_user(email="otpfail@example.com")
         res = self.client.post(
@@ -43,7 +43,7 @@ class SendOTPTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 200)
 
-    @patch("apps.accounts.views.send_otp_email")
+    @patch("apps.accounts.email_utils.send_otp_email")
     def test_password_reset_endpoint_same_behaviour(self, mock_email):
         """password-reset is the same view — just verify it works via that URL too."""
         mock_email.return_value = None

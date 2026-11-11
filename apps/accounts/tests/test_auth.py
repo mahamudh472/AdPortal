@@ -29,7 +29,7 @@ class RegisterTests(AdPortalTestBase):
 
     # ── Happy path ──────────────────────────────────────────────────────────
 
-    @patch("apps.accounts.views.send_otp_email")
+    @patch("apps.accounts.email_utils.send_otp_email")
     def test_register_success(self, mock_email):
         """Valid data creates an inactive user and sends OTP."""
         mock_email.return_value = None
@@ -39,7 +39,7 @@ class RegisterTests(AdPortalTestBase):
         self.assertFalse(user.is_active)
         self.assertTrue(OTP.objects.filter(user=user).exists())
 
-    @patch("apps.accounts.views.send_otp_email", side_effect=Exception("SMTP down"))
+    @patch("apps.accounts.email_utils.send_otp_email", side_effect=Exception("SMTP down"))
     def test_register_email_failure_still_returns_201(self, mock_email):
         """Email failure should not block registration."""
         res = self.client.post(self._url(), self._valid_payload(), format="json")
@@ -47,7 +47,7 @@ class RegisterTests(AdPortalTestBase):
 
     # ── Duplicate / inactive user re-registration ───────────────────────────
 
-    @patch("apps.accounts.views.send_otp_email")
+    @patch("apps.accounts.email_utils.send_otp_email")
     def test_register_overwrites_inactive_duplicate(self, mock_email):
         """Registering with same email of inactive user deletes old record first."""
         mock_email.return_value = None

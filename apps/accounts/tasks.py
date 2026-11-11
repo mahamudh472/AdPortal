@@ -22,3 +22,19 @@ def purge_expired_auth_data():
     except Exception:
         logger.exception("flushexpiredtokens failed")
     logger.info("Purged %s OTPs and %s old notifications", otp_deleted, notif_deleted)
+
+
+@shared_task(bind=True, max_retries=3)
+def send_otp_email_task(self, user_email, user_name, otp_code, expiry_minutes=10):
+    """Send the OTP e-mail outside the HTTP request (SMTP can take seconds or fail)."""
+    from apps.accounts.email_utils import send_otp_email
+    try:
+        send_otp_email(
+            user_email=user_email, user_name=user_name,
+            otp_code=otp_code, expiry_minutes=expiry_minutes,
+        )
+    except Exception as exc:
+        logger.warning("OTP e-mail to a user failed (attempt %s): %s", self.request.retries + 1, type(exc).__name__)
+        if self.request.is_eager:
+            return
+        raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))

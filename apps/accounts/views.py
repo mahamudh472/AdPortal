@@ -6,7 +6,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import GenericAPIView, ListAPIView
 from apps.accounts.permissions import IsRegularPlatformUser
-from apps.accounts.email_utils import send_otp_email, send_welcome_email
+from apps.accounts.email_utils import send_welcome_email
+from apps.accounts.tasks import send_otp_email_task
 from apps.accounts.serializers import (
     CustomTokenObtainPairSerializer,
     NotificationSettingsSerializer, 
@@ -45,13 +46,12 @@ class RegisterView(GenericAPIView):
             otp = issue_otp(user)
 
             try:
-                send_otp_email(
+                send_otp_email_task.delay(
                     user_email=user.email,
                     user_name=user.full_name or user.email.split('@')[0],
                     otp_code=otp,
                     expiry_minutes=10
                 )
-                # Send welcome email after successful OTP
                 return Response({"message": "Otp sent successfully"}, status=status.HTTP_201_CREATED)
             except Exception as e:
                 # Log the error for debugging
@@ -176,7 +176,7 @@ class SendOTPView(GenericAPIView):
         otp = issue_otp(user)
 
         try:
-            send_otp_email(
+            send_otp_email_task.delay(
                 user_email=user.email,
                 user_name=user.full_name or user.email.split('@')[0],
                 otp_code=otp,
