@@ -25,6 +25,11 @@ class AnalysisDaily(models.Model):
     budget_amount = models.FloatField(blank=True, null=True)
     class Meta:
         unique_together = ('platform', 'account_id', 'campaign_id', 'adgroup_id', 'date')
+        indexes = [
+            # Dominant access patterns: org-scoped date ranges and per-campaign rollups
+            models.Index(fields=['organization', 'date'], name='analysis_org_date_idx'),
+            models.Index(fields=['unified_campaign', 'date'], name='analysis_camp_date_idx'),
+        ]
 
     def __str__(self):
         return f"Analysis for {self.campaign_name} {self.date} on {self.platform}"

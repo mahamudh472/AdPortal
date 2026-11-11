@@ -69,6 +69,7 @@ class OTP(models.Model):
     
     class Meta:
         db_table = 'otps'
+        indexes = [models.Index(fields=['user', 'is_used', 'expires_at'], name='otp_user_used_exp_idx')]
         verbose_name = 'OTP'
         verbose_name_plural = 'OTPs'
     
@@ -85,6 +86,9 @@ class Notification(models.Model):
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     read = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'read', '-created_at'], name='notif_user_read_created_idx')]
 
     def __str__(self):
         return f"{self.user.full_name}: {self.message}"
