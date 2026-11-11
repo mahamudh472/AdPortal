@@ -321,6 +321,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-auth-mode',
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -348,6 +349,9 @@ CORS_ALLOWED_ORIGINS = list(dict.fromkeys(
 CORS_ALLOWED_ORIGINS = [o for o in CORS_ALLOWED_ORIGINS if o]
 
 USE_HTTPS = os.getenv('USE_HTTPS', 'False') == 'True'
+# SameSite for the HttpOnly refresh-token cookie. Use 'None' (requires HTTPS) only if the
+# frontend and API are on different *sites*; 'Lax' works for app.example.com <-> api.example.com.
+AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = USE_HTTPS
 CSRF_COOKIE_SECURE = USE_HTTPS

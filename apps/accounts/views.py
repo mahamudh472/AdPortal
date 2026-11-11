@@ -2,7 +2,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import GenericAPIView, ListAPIView
 from apps.accounts.permissions import IsRegularPlatformUser
@@ -153,10 +153,65 @@ class UpdateProfileView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+REFRESH_COOKIE = 'refresh_token'
+COOKIE_SENTINEL = 'cookie'
+
+
+def _cookie_mode(request) -> bool:
+    return request.headers.get('X-Auth-Mode', '').lower() == 'cookie'
+
+
+def _set_refresh_cookie(response, refresh_value):
+    response.set_cookie(
+        REFRESH_COOKIE, refresh_value,
+        max_age=int(settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()),
+        httponly=True,
+        secure=settings.USE_HTTPS,
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+        path='/api/v1/accounts/',
+    )
+
+
+def _clear_refresh_cookie(response):
+    response.delete_cookie(REFRESH_COOKIE, path='/api/v1/accounts/', samesite=settings.AUTH_COOKIE_SAMESITE)
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
+    """Login. With ``X-Auth-Mode: cookie`` the refresh token travels only in an HttpOnly
+    cookie (invisible to JavaScript / XSS) and the body carries a placeholder instead."""
     serializer_class = CustomTokenObtainPairSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'login'
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200 and _cookie_mode(request) and response.data.get('refresh'):
+            _set_refresh_cookie(response, response.data['refresh'])
+            response.data['refresh'] = COOKIE_SENTINEL
+        return response
+
+
+class CookieTokenRefreshView(TokenRefreshView):
+    """Refresh using the HttpOnly cookie (cookie mode) or the request body (legacy)."""
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
+
+    def post(self, request, *args, **kwargs):
+        cookie_mode = _cookie_mode(request)
+        if cookie_mode:
+            body_value = request.data.get('refresh')
+            if not body_value or body_value == COOKIE_SENTINEL:
+                data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+                data['refresh'] = request.COOKIES.get(REFRESH_COOKIE, '')
+                request._full_data = data
+        response = super().post(request, *args, **kwargs)
+        if cookie_mode:
+            if response.status_code == 200 and response.data.get('refresh'):
+                _set_refresh_cookie(response, response.data['refresh'])
+                response.data['refresh'] = COOKIE_SENTINEL
+            elif response.status_code in (400, 401):
+                _clear_refresh_cookie(response)
+        return response
 
 
 class SendOTPView(GenericAPIView):
@@ -216,6 +271,8 @@ class LogoutView(GenericAPIView):
     def post(self, request):
         try:
             refresh_token = request.data.get('refresh_token')
+            if not refresh_token or refresh_token == COOKIE_SENTINEL:
+                refresh_token = request.COOKIES.get(REFRESH_COOKIE)
             if not refresh_token:
                 return Response(
                     {"error": "Refresh token is required"},
@@ -225,10 +282,12 @@ class LogoutView(GenericAPIView):
             token = RefreshToken(refresh_token)
             token.blacklist()
             
-            return Response(
+            response = Response(
                 {"message": "Successfully logged out"},
                 status=status.HTTP_205_RESET_CONTENT
             )
+            _clear_refresh_cookie(response)
+            return response
         except Exception:
             return Response(
                 {"error": "Invalid or expired refresh token"},

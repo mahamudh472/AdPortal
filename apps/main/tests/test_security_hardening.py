@@ -388,3 +388,45 @@ class PrivateReportTests(MainTestBase):
         self.assertEqual(self.client.get(url).status_code, 403)
         self.client.credentials()
         self.assertEqual(self.client.get(url).status_code, 401)
+
+
+class RefreshCookieTests(MainTestBase):
+    def _login(self, cookie_mode):
+        self.create_user(email="ck@example.com")
+        self.client.credentials()
+        headers = {"HTTP_X_AUTH_MODE": "cookie"} if cookie_mode else {}
+        return self.client.post("/api/v1/accounts/login/", {"email": "ck@example.com", "password": "StrongPass123!"},
+                                format="json", **headers)
+
+    def test_legacy_mode_unchanged(self):
+        res = self._login(False)
+        self.assertEqual(res.status_code, 200)
+        self.assertNotEqual(res.data["refresh"], "cookie")
+        self.assertNotIn("refresh_token", res.cookies)
+
+    def test_cookie_mode_hides_refresh_from_body_and_refreshes(self):
+        res = self._login(True)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["refresh"], "cookie")
+        morsel = res.cookies["refresh_token"]
+        self.assertTrue(morsel["httponly"])
+        self.assertTrue(morsel.value)
+        # refresh with only the cookie (+ placeholder body)
+        self.client.cookies["refresh_token"] = morsel.value
+        r2 = self.client.post("/api/v1/accounts/token/refresh/", {"refresh": "cookie"}, format="json",
+                              HTTP_X_AUTH_MODE="cookie")
+        self.assertEqual(r2.status_code, 200)
+        self.assertIn("access", r2.data)
+        self.assertEqual(r2.data["refresh"], "cookie")
+        self.assertNotEqual(r2.cookies["refresh_token"].value, morsel.value)  # rotated
+
+    def test_logout_blacklists_cookie_token(self):
+        res = self._login(True)
+        access = res.data["access"]
+        self.client.cookies["refresh_token"] = res.cookies["refresh_token"].value
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        out = self.client.post("/api/v1/accounts/logout/", {"refresh_token": "cookie"}, format="json")
+        self.assertEqual(out.status_code, 205)
+        self.client.credentials()
+        again = self.client.post("/api/v1/accounts/token/refresh/", {}, format="json", HTTP_X_AUTH_MODE="cookie")
+        self.assertIn(again.status_code, (400, 401))
