@@ -1,6 +1,7 @@
 """Regression tests for the security audit fixes (docs/CODEBASE_AUDIT.md SEC-01..05)."""
 from datetime import timedelta
 
+from django.test import override_settings
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -484,3 +485,19 @@ class AdminAuditTests(MainTestBase):
         with self.assertRaises(PermissionError):
             entry.action = "y"
             entry.save()
+
+
+class AiCapTests(MainTestBase):
+    @override_settings(AI_DAILY_LIMIT_PER_ORG=2)
+    def test_daily_cap(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from rest_framework.exceptions import Throttled
+        from apps.main.services.ai import AIService
+        cache.clear()
+        with patch("apps.main.services.ai.generate_copy", return_value="x"):
+            svc = AIService()
+            svc.generate_copy(self.org, "p", "a", "b", "friendly", "headline")
+            svc.generate_copy(self.org, "p", "a", "b", "friendly", "headline")
+            with self.assertRaises(Throttled):
+                svc.generate_copy(self.org, "p", "a", "b", "friendly", "headline")

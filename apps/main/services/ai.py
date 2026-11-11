@@ -7,6 +7,24 @@ from apps.main.ai_services import generate_copy, generate_ad_copy
 from apps.main.models import AIOptimizationSettings, UnifiedCampaign
 
 class AIService:
+    def _enforce_daily_cap(self, organization):
+        """Hard per-organization daily ceiling on paid LLM calls (cost protection)."""
+        from django.conf import settings
+        from django.core.cache import cache
+        from rest_framework.exceptions import Throttled
+        limit = getattr(settings, 'AI_DAILY_LIMIT_PER_ORG', 0)
+        if not organization or not limit:
+            return
+        key = f"ai_daily:{organization.pk}:{timezone.now():%Y%m%d}"
+        cache.add(key, 0, 24 * 3600)
+        try:
+            used = cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, 24 * 3600)
+            used = 1
+        if used > limit:
+            raise Throttled(detail="Daily AI generation limit reached for your organization. Try again tomorrow.")
+
     def increment_ai_usage(self, organization):
         """Increment the ai_copy_generator UsageRecord for the org's active billing period."""
         subscription = (
@@ -28,6 +46,7 @@ class AIService:
         UsageRecord.objects.filter(pk=record.pk).update(used=models.F('used') + 1)
 
     def generate_copy(self, organization, product, audience, benefits, tone, copy_type):
+        self._enforce_daily_cap(organization)
         generated_copy = generate_copy(
             product=product,
             audience=audience,
@@ -40,6 +59,7 @@ class AIService:
         return generated_copy
 
     def generate_ad_copy(self, organization, product_service, target_audience, key_benefits, tone):
+        self._enforce_daily_cap(organization)
         generated_copy = generate_ad_copy(
             product_service=product_service,
             target_audience=target_audience,

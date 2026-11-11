@@ -302,6 +302,8 @@ GOOGLE_ADS_USE_TEST_ACCOUNT = os.getenv("GOOGLE_ADS_USE_TEST_ACCOUNT", "False") 
 GOOGLE_ADS_ACCESS_TOKEN = os.getenv("GOOGLE_ADS_ACCESS_TOKEN")
 GOOGLE_ADS_REFRESH_TOKEN = os.getenv("GOOGLE_ADS_REFRESH_TOKEN")
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+# Hard daily ceiling of AI copy generations per organization (0 disables).
+AI_DAILY_LIMIT_PER_ORG = int(os.getenv('AI_DAILY_LIMIT_PER_ORG', '200'))
 
 # Fernet key(s) for encrypting stored OAuth tokens. Generate: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
 # Comma separated for rotation (first key encrypts). Falls back to a key derived from SECRET_KEY.
