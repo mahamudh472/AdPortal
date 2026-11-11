@@ -32,6 +32,16 @@ class PlanListAPIView(ListAPIView):
     authentication_classes = []
     serializer_class = PlanSerializer
     queryset = Plan.objects.filter(is_active=True)
+    CACHE_KEY = 'finance:plans:list'
+    CACHE_TTL = 300  # invalidated immediately when a Plan / PlanFeature changes
+
+    def list(self, request, *args, **kwargs):
+        from django.core.cache import cache
+        data = cache.get(self.CACHE_KEY)
+        if data is None:
+            data = self.get_serializer(self.filter_queryset(self.get_queryset()), many=True).data
+            cache.set(self.CACHE_KEY, data, self.CACHE_TTL)
+        return Response(data)
 
 
 class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
