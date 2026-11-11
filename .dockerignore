@@ -17,8 +17,8 @@ venv/
 .venv/
 
 # Django
-# db.sqlite3
-# *.sqlite3
+db.sqlite3
+*.sqlite3
 staticfiles/
 media/
 
@@ -46,3 +46,14 @@ docker-compose*.yml
 test.py
 test_*.py
 dummy.txt
+
+# Not needed in the runtime image
+frontend/
+docs/
+.github/
+.agents/
+dozzle/
+nginx/
+scripts/
+*.md
+create test account google ad.py

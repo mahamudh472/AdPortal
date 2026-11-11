@@ -27,14 +27,12 @@ fi
 # This avoids redundant migration work in celery/beat containers.
 case "$*" in
   *daphne*)
-        echo "Making migrations..."
-        python manage.py makemigrations --noinput
-
+        # NOTE: never run makemigrations at start-up; migrations are committed to git.
         echo "Running migrations..."
         python manage.py migrate --noinput
 
     echo "Collecting static files..."
-    python manage.py collectstatic --noinput --clear
+    python manage.py collectstatic --noinput
     ;;
 esac
 
