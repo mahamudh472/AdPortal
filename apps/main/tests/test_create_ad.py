@@ -163,3 +163,43 @@ class PublishAdTests(MainTestBase):
         res = self.client.post(self._url(), payload, format="json")
         self.assertEqual(res.status_code, 400)
         mock_create.assert_not_called()
+
+    @patch("apps.main.services.ad_creation.create_full_ad_for_platform")
+    def test_publish_without_optional_fields_defaults_ad_name(self, mock_create):
+        """Ad name, description and keywords are optional in the wizard."""
+        mock_create.return_value = None
+        payload = self._full_payload("No Optionals")
+        for field in ("ad_name", "description", "keywords"):
+            payload.pop(field)
+        res = self.client.post(self._url(), payload, format="json")
+        self.assertIn(res.status_code, [200, 201])
+        self.assertEqual(mock_create.call_args.args[1]["ad_name"], "No Optionals - Default Ad")
+
+
+class CreativeDraftFieldsTests(MainTestBase):
+    def setUp(self):
+        super().setUp()
+        self.create_integration("META")
+
+    def test_draft_keeps_ad_format_and_creative_keywords_and_allows_clearing(self):
+        url = f"{BASE}/create-ad/?org_id={self.org_id}"
+        created = self.client.post(url, {"campaign_name": "Creative Draft", "draft": True}, format="json")
+        campaign_id = created.data["id"]
+
+        res = self.client.post(url, {
+            "campaign_id": campaign_id, "ad_format": "video", "creative_keywords": "sound, music",
+            "headline": "Hi", "description": "Temp",
+        }, format="json")
+        self.assertEqual(res.status_code, 200)
+        ad = res.data["ads"][0]
+        self.assertEqual(ad["ad_format"], "video")
+        self.assertEqual(ad["creative_keywords"], "sound, music")
+
+        cleared = self.client.post(url, {"campaign_id": campaign_id, "description": ""}, format="json")
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(cleared.data["ads"][0]["description"], "")
+
+    def test_invalid_ad_format_is_rejected(self):
+        url = f"{BASE}/create-ad/?org_id={self.org_id}"
+        res = self.client.post(url, {"campaign_name": "Bad Format", "ad_format": "gif"}, format="json")
+        self.assertEqual(res.status_code, 400)

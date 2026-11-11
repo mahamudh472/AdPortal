@@ -185,7 +185,7 @@ class CampaignSerializer(serializers.ModelSerializer):
             draft = obj.draft_data or {}
             creative_fields = [
                 'ad_name', 'headline', 'primary_text', 'description',
-                'call_to_action', 'destination_url',
+                'call_to_action', 'destination_url', 'ad_format', 'creative_keywords',
             ]
             ad_data = {k: draft.get(k) for k in creative_fields}
             # Only return if at least one creative field is populated
@@ -381,9 +381,9 @@ class CreateAdSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False
     )
-    keywords = serializers.CharField(required=False)
+    keywords = serializers.CharField(required=False, allow_blank=True)
 
-    ad_name = serializers.CharField(max_length=100, required=False)
+    ad_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     ad_file = serializers.FileField(required=False)
 
     ALLOWED_IMAGE_TYPES = [
@@ -409,11 +409,13 @@ class CreateAdSerializer(serializers.Serializer):
             value.content_type = mime
         return value
 
-    headline = serializers.CharField(required=False)
-    primary_text = serializers.CharField(required=False)
-    description = serializers.CharField(required=False)
-    call_to_action = serializers.CharField(required=False)
-    destination_url = serializers.URLField(required=False)
+    headline = serializers.CharField(required=False, allow_blank=True)
+    primary_text = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    call_to_action = serializers.CharField(required=False, allow_blank=True)
+    destination_url = serializers.URLField(required=False, allow_blank=True)
+    ad_format = serializers.ChoiceField(choices=['image', 'video'], required=False)
+    creative_keywords = serializers.CharField(required=False, allow_blank=True)
 
     draft = serializers.BooleanField(default=True)
 
@@ -610,3 +612,27 @@ class AudienceReachRequestSerializer(serializers.Serializer):
     gender = serializers.ChoiceField(choices=['all', 'male', 'female'], required=False, default='all')
     locations = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     keywords = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class WizardBudgetRecommendationSerializer(serializers.Serializer):
+    campaign_id = serializers.IntegerField(required=False)
+    platforms = serializers.ListField(child=serializers.ChoiceField(choices=['META', 'GOOGLE', 'TIKTOK']), required=False, default=list)
+    objective = serializers.CharField(required=False, allow_blank=True, default='')
+    daily_budget = serializers.IntegerField(required=False, min_value=1, max_value=1_000_000)
+    days = serializers.IntegerField(required=False, min_value=1, max_value=365, default=30)
+
+
+class WizardNameSuggestionSerializer(serializers.Serializer):
+    campaign_id = serializers.IntegerField(required=False)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+
+
+class WizardCreativeScoreSerializer(serializers.Serializer):
+    headline = serializers.CharField(required=False, allow_blank=True, default='')
+    primary_text = serializers.CharField(required=False, allow_blank=True, default='')
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    call_to_action = serializers.CharField(required=False, allow_blank=True, default='')
+    destination_url = serializers.CharField(required=False, allow_blank=True, default='')
+    keywords = serializers.CharField(required=False, allow_blank=True, default='')
+    ad_format = serializers.ChoiceField(choices=['image', 'video'], required=False, default='image')
+    has_asset = serializers.BooleanField(required=False, default=False)

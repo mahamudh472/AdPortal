@@ -2,9 +2,9 @@ from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
 from rest_framework import generics, status
 from apps.main.utils.tiktok_handler import create_full_ad_for_tiktok
-from .services import AdCreationService, CampaignService, DashboardService, AIService, TeamService
+from .services import AdCreationService, CampaignService, DashboardService, AIService, TeamService, CampaignWizardService
 from .serializers import (
-    AIAdCopySerializer, AIInsightDetailSerializer, AudienceReachRequestSerializer, AIOptimizationSettingsSerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer
+    AIAdCopySerializer, AIInsightDetailSerializer, AudienceReachRequestSerializer, AIOptimizationSettingsSerializer, CampaignSerializer, CreateAdSerializer, AICopyRequestSerializer, OrganizationSerializer, TeamMemberInviteSerializer, TeamMemberSerializer, AIInsightSerializer, TempCampaignSerializer, WizardBudgetRecommendationSerializer, WizardNameSuggestionSerializer, WizardCreativeScoreSerializer
 )
 from .models import AdAsset, UnifiedCampaign, Organization, CampaignBudget
 from apps.accounts.permissions import IsAdminOrOwnerOfOrganization, IsRegularPlatformUser, IsOrganizationMember, IsOrgAdminForWrites
@@ -393,6 +393,7 @@ class AudienceReachEstimateAPIView(RequiredOrganizationIDMixin, generics.Generic
         scale = min(1.0, max(0.2, span / 47))
         base_min, base_max = int(base_min * scale), int(base_max * scale)
 
+        analysis = CampaignWizardService().audience_insights(base_min * 1000, base_max * 1000, data)
         return Response({
             'min_reach': base_min * 1000,
             'max_reach': base_max * 1000,
@@ -400,7 +401,74 @@ class AudienceReachEstimateAPIView(RequiredOrganizationIDMixin, generics.Generic
             'max_label': f"{base_max}K",
             'progress': min(90, max(40, base_min / 10)),
             'is_estimate': True,
+            **analysis,
         })
+
+
+def _wizard_context(view):
+    """(organization, campaign-or-None) for the wizard helper endpoints."""
+    organization = Organization.objects.filter(snowflake_id=view.get_org_id()).first()
+    if not organization:
+        raise ValidationError({'org_id': 'Invalid organization id'})
+    campaign = None
+    campaign_id = view.request.query_params.get('campaign_id') or view.request.data.get('campaign_id')
+    if campaign_id:
+        campaign = UnifiedCampaign.objects.filter(id=campaign_id, organization=organization).first()
+        if not campaign:
+            raise ValidationError({'campaign_id': 'Campaign not found'})
+    return organization, campaign
+
+
+class CampaignWizardConfigAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """GET /main/campaign-wizard/config/ — platform + objective catalogs and recommendations."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+
+    def get(self, request, *args, **kwargs):
+        organization, campaign = _wizard_context(self)
+        return Response(CampaignWizardService().get_config(organization, campaign))
+
+
+class CampaignNameSuggestionsAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /main/campaign-wizard/name-suggestions/ — "AI Name Suggestions" panel."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = WizardNameSuggestionSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        organization, campaign = _wizard_context(self)
+        return Response(CampaignWizardService().name_suggestions(
+            organization, campaign, offset=serializer.validated_data['offset'],
+        ))
+
+
+class CampaignBudgetRecommendationAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /main/campaign-wizard/budget-recommendation/ — recommended budget, split and estimated results."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = WizardBudgetRecommendationSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        organization, campaign = _wizard_context(self)
+        platforms = data['platforms'] or ((campaign.draft_data or {}).get('platforms') if campaign else []) or []
+        objective = data['objective'] or (campaign.objective if campaign else '')
+        return Response(CampaignWizardService().budget_recommendation(
+            organization, platforms, objective, data.get('daily_budget'), data['days'],
+        ))
+
+
+class CampaignCreativeScoreAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):
+    """POST /main/campaign-wizard/creative-score/ — "Creative Performance Score" panel."""
+    permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
+    serializer_class = WizardCreativeScoreSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        _wizard_context(self)
+        return Response(CampaignWizardService().creative_score(serializer.validated_data))
 
 
 class CreatePlatformCampaignAPIView(RequiredOrganizationIDMixin, generics.GenericAPIView):

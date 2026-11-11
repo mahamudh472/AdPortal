@@ -3,3 +3,4 @@ from .campaign import CampaignService
 from .dashboard import DashboardService
 from .ai import AIService
 from .team import TeamService
+from .wizard import CampaignWizardService

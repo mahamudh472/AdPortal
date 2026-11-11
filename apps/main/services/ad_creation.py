@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 class AdCreationService:
     REQUIRED_FIELDS_FOR_PUBLISH = [
         'platforms', 'campaign_name', 'objective', 'budgets',
-        'min_age', 'max_age', 'gender', 'locations', 'keywords',
-        'ad_name', 'headline', 'primary_text', 'description',
+        'min_age', 'max_age', 'gender', 'locations',
+        'headline', 'primary_text',
         'call_to_action', 'destination_url'
     ]
+    # Ad name, description and keywords are optional in the wizard; the platform
+    # objects fall back to defaults built from the campaign name.
 
     def validate_platform_integrations(self, organization, platforms):
         """Verify that the organization has active integrations for all requested platforms."""
@@ -268,6 +270,8 @@ class AdCreationService:
             'name': campaign.name,
             **draft_data,
         }
+        if not full_data.get('ad_name'):
+            full_data['ad_name'] = f"{campaign.name} - Default Ad"
 
         for platform in draft_data['platforms']:
             create_full_ad_for_platform(campaign, full_data, platform, ad_asset=ad_asset)
