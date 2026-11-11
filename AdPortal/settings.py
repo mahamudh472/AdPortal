@@ -143,8 +143,12 @@ TESTING = 'test' in sys.argv
 if RUNNING_IN_DOCKER and REDIS_HOST in {'localhost', '127.0.0.1', '::1'}:
     REDIS_HOST = 'redis'
 
-REDIS_URL = os.getenv('REDIS_URL', f"redis://{REDIS_HOST}:{REDIS_PORT}/0").strip()
-REDIS_CACHE_LOCATION = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
+# Optional Redis password (recommended in production; see docker-compose.yml).
+from urllib.parse import quote as _urlquote
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '').strip()
+_redis_auth = f":{_urlquote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else ''
+REDIS_URL = os.getenv('REDIS_URL', f"redis://{_redis_auth}{REDIS_HOST}:{REDIS_PORT}/0").strip()
+REDIS_CACHE_LOCATION = f"redis://{_redis_auth}{REDIS_HOST}:{REDIS_PORT}/1"
 REDIS_BROKER_LOCATION = REDIS_URL
 
 if TESTING:

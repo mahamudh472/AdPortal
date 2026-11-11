@@ -26,7 +26,7 @@ fi
 # Run one-time Django maintenance only for the web process.
 # This avoids redundant migration work in celery/beat containers.
 case "$*" in
-  *daphne*)
+  *gunicorn*)
         # NOTE: never run makemigrations at start-up; migrations are committed to git.
         echo "Running migrations..."
         python manage.py migrate --noinput

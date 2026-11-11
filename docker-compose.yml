@@ -19,10 +19,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # Set REDIS_PASSWORD in .env to require authentication (recommended).
+    command: ["sh", "-c", "exec redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass \"$$REDIS_PASSWORD\"}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,7 +34,13 @@ services:
   web:
     build: .
     restart: unless-stopped
-    command: daphne -b 0.0.0.0 -p 8000 AdPortal.asgi:application
+    # HTTP API: Gunicorn (multiple workers/threads). Sync DRF views under Daphne would run on a
+    # single shared thread, so Daphne is only used for WebSockets (service "ws").
+    command: >
+      gunicorn AdPortal.wsgi:application --bind 0.0.0.0:8000
+      --workers ${GUNICORN_WORKERS:-3} --threads ${GUNICORN_THREADS:-4}
+      --timeout 60 --graceful-timeout 30 --max-requests 2000 --max-requests-jitter 200
+      --access-logfile - --access-logformat '%(h)s "%(r)s" %(s)s %(b)s %(L)s'
     volumes:
       - staticfiles:/app/staticfiles
       - media:/app/media
@@ -45,6 +55,20 @@ services:
         condition: service_healthy
     expose:
       - "8000"
+
+  ws:
+    build: .
+    restart: unless-stopped
+    command: daphne -b 0.0.0.0 -p 8001 AdPortal.asgi:application
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8001"
 
   celery:
     build: .
@@ -89,6 +113,8 @@ services:
       CERT_NAME: ${CERT_NAME:-useadportal.com}
       # Dozzle (Docker logs) is reachable only from this address/CIDR. Set to your VPN/office IP.
       DOZZLE_ALLOW: ${DOZZLE_ALLOW:-127.0.0.1}
+      # Django admin (/admin/) is reachable only from this address/CIDR.
+      ADMIN_ALLOW: ${ADMIN_ALLOW:-127.0.0.1}
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
       - ./frontend:/app/frontend:ro
@@ -98,6 +124,7 @@ services:
       - certbot_webroot:/var/www/certbot
     depends_on:
       - web
+      - ws
 
   certbot:
     image: certbot/certbot:v3.0.1
