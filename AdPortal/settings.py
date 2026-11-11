@@ -298,6 +298,10 @@ GOOGLE_ADS_ACCESS_TOKEN = os.getenv("GOOGLE_ADS_ACCESS_TOKEN")
 GOOGLE_ADS_REFRESH_TOKEN = os.getenv("GOOGLE_ADS_REFRESH_TOKEN")
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+# Fernet key(s) for encrypting stored OAuth tokens. Generate: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+# Comma separated for rotation (first key encrypts). Falls back to a key derived from SECRET_KEY.
+FIELD_ENCRYPTION_KEYS = tuple(k.strip() for k in os.getenv('FIELD_ENCRYPTION_KEYS', '').split(',') if k.strip())
+
 # CORS Configuration
 # Allow-all only for local development (or when explicitly requested via env).
 CORS_ALLOW_ALL_ORIGINS = DEBUG or os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'

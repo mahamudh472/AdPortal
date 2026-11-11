@@ -324,3 +324,38 @@ class AdminUserTests(MainTestBase):
         self.assertNotEqual(created.password, "Sup3r-Secret-pass!")
         self.assertTrue(created.check_password("Sup3r-Secret-pass!"))
         self.assertEqual(c.get(f"/admin/accounts/user/{su.pk}/change/").status_code, 200)
+
+
+class TokenEncryptionTests(MainTestBase):
+    def test_tokens_encrypted_at_rest_and_lookup_works(self):  # SEC-12
+        from django.db import connection
+        integ = self.create_integration("META")
+        integ.access_token = "EAAB-secret-token"
+        integ.refresh_token = "refresh-secret"
+        integ.save()
+        with connection.cursor() as cur:
+            cur.execute("SELECT access_token, refresh_token FROM main_adintegration WHERE id=%s", [integ.id])
+            raw_a, raw_r = cur.fetchone()
+        self.assertTrue(raw_a.startswith("enc1:"))
+        self.assertNotIn("EAAB", raw_a)
+        self.assertTrue(raw_r.startswith("enc1:"))
+        integ.refresh_from_db()
+        self.assertEqual(integ.access_token, "EAAB-secret-token")
+        self.assertEqual(AdIntegration.find_by_token("EAAB-secret-token").pk, integ.pk)
+        self.assertIsNone(AdIntegration.find_by_token("nope"))
+
+    def test_legacy_plaintext_still_readable(self):
+        from django.db import connection
+        integ = self.create_integration("TIKTOK")
+        with connection.cursor() as cur:
+            cur.execute("UPDATE main_adintegration SET access_token='plain-old' WHERE id=%s", [integ.id])
+        integ.refresh_from_db()
+        self.assertEqual(integ.access_token, "plain-old")
+
+    def test_update_via_queryset_is_encrypted(self):
+        from django.db import connection
+        integ = self.create_integration("META")
+        AdIntegration.objects.filter(pk=integ.pk).update(access_token="new-token")
+        with connection.cursor() as cur:
+            cur.execute("SELECT access_token FROM main_adintegration WHERE id=%s", [integ.id])
+            self.assertTrue(cur.fetchone()[0].startswith("enc1:"))

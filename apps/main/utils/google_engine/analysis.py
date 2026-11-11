@@ -45,7 +45,7 @@ def _get_login_customer_id(access_token: str) -> str | None:
     """Resolve the login customer ID for the given access token, falling back to settings."""
     try:
         from apps.main.models import AdIntegration
-        integration = AdIntegration.objects.filter(access_token=access_token).first()
+        integration = AdIntegration.find_by_token(access_token)
         if integration and integration.manager_id:
             return str(integration.manager_id).replace("-", "")
     except Exception:

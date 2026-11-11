@@ -7,6 +7,7 @@ from django.utils import timezone
 from snowflake import SnowflakeGenerator
 from datetime import timedelta
 from apps.main.utils.safe_files import ad_asset_upload_to
+from apps.main.fields import EncryptedTextField, token_hash
 
 _generators = {}
 
@@ -142,8 +143,10 @@ class AdIntegration(models.Model):
     manager_id = models.CharField(max_length=100, null=True, blank=True)
     
     # Auth Tokens
-    access_token = models.TextField()
-    refresh_token = models.TextField(null=True, blank=True)
+    access_token = EncryptedTextField()
+    refresh_token = EncryptedTextField(null=True, blank=True)
+    # SHA-256 of access_token (blind index) — the token itself is stored encrypted.
+    access_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True, editable=False)
     token_expires_at = models.DateTimeField(null=True, blank=True)
     
     # Metadata (e.g., Name of the ad account, currency)
@@ -155,6 +158,20 @@ class AdIntegration(models.Model):
 
     class Meta:
         unique_together = ('organization', 'platform', 'ad_account_id')
+
+    def save(self, *args, **kwargs):
+        self.access_token_hash = token_hash(self.access_token)
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'access_token' in update_fields and 'access_token_hash' not in update_fields:
+            kwargs['update_fields'] = list(update_fields) + ['access_token_hash']
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def find_by_token(cls, access_token):
+        """Look an integration up by its (encrypted) access token via the blind index."""
+        if not access_token:
+            return None
+        return cls.objects.filter(access_token_hash=token_hash(access_token)).first()
 
     def __str__(self):
         return f"{self.organization.name} - {self.platform} ({self.ad_account_id})"
