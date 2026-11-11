@@ -113,6 +113,29 @@ services:
       redis:
         condition: service_healthy
 
+  # SPA built from the separate frontend repo (see FRONTEND_CONTEXT). Not published to the host:
+  # only the edge nginx reaches it. VITE_* values are baked into the bundle at build time, so
+  # changing them requires `docker compose --profile prod build frontend`.
+  frontend:
+    build:
+      context: ${FRONTEND_CONTEXT:-../adportal_frontend}
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.useadportal.com}
+        VITE_API_BASE_WS_URL: ${VITE_API_BASE_WS_URL:-wss://api.useadportal.com}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    profiles:
+      - prod
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    expose:
+      - "8080"
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -131,7 +154,6 @@ services:
       ADMIN_ALLOW: ${ADMIN_ALLOW:-127.0.0.1}
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
-      - ./frontend:/app/frontend:ro
       - staticfiles:/app/staticfiles:ro
       - media:/app/media:ro
       - letsencrypt:/etc/letsencrypt
@@ -139,6 +161,7 @@ services:
     depends_on:
       - web
       - ws
+      - frontend
 
   certbot:
     image: certbot/certbot:v3.0.1
