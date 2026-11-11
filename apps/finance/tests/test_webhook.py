@@ -58,3 +58,19 @@ class StripeWebhookTests(FinanceTestBase):
         self.assertEqual(self._post(_event("evt_6", "customer.subscription.updated", obj)).status_code, 200)
         self.sub.refresh_from_db()
         self.assertTrue(self.sub.cancel_at_period_end)
+
+
+class AbandonedCheckoutTests(FinanceTestBase):
+    def test_purge_removes_only_old_incomplete(self):
+        from apps.finance.models import Subscription
+        from apps.finance.tasks import purge_abandoned_checkouts
+        from django.utils import timezone
+        plan = self.create_plan()
+        old = Subscription.objects.create(organization=self.org, plan=plan, status="incomplete")
+        fresh = Subscription.objects.create(organization=self.org, plan=plan, status="incomplete")
+        paid = Subscription.objects.create(organization=self.org, plan=plan, status="active")
+        Subscription.objects.filter(pk__in=[old.pk, paid.pk]).update(created_at=timezone.now() - timezone.timedelta(days=5))
+        purge_abandoned_checkouts()
+        self.assertFalse(Subscription.objects.filter(pk=old.pk).exists())
+        self.assertTrue(Subscription.objects.filter(pk=fresh.pk).exists())
+        self.assertTrue(Subscription.objects.filter(pk=paid.pk).exists())

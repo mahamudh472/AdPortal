@@ -12,6 +12,7 @@ from apps.main.models import Organization
 import calendar
 import stripe
 from django.conf import settings
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
@@ -251,13 +252,18 @@ class BuyPlanAPIView(RequiredOrganizationIDMixin, GenericAPIView):
                     )
 
         # ── No existing subscription → start a new Checkout session ────────
-        pending_sub = Subscription.objects.create(
-            organization=organization,
-            plan=new_plan,
-            status="incomplete",
+        # Reuse a recent abandoned attempt for the same plan instead of piling up rows.
+        pending_sub = (
+            Subscription.objects.filter(
+                organization=organization, plan=new_plan, status="incomplete",
+                stripe_subscription_id__isnull=True,
+                created_at__gte=timezone.now() - timezone.timedelta(hours=24),
+            ).order_by("-created_at").first()
+            or Subscription.objects.create(organization=organization, plan=new_plan, status="incomplete")
         )
 
         session = stripe.checkout.Session.create(
+            idempotency_key=f"checkout-{pending_sub.id}-{int(timezone.now().timestamp() // 600)}",
             ui_mode="embedded",
             customer_email=request.user.email,
             line_items=[

@@ -387,6 +387,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.main.tasks.generate_ai_insights_for_active_campaigns',
         'schedule': crontab(hour=2, minute=0),
     },
+    # Every day at 04:00 UTC — remove abandoned (never paid) checkout attempts
+    'purge-abandoned-checkouts': {
+        'task': 'apps.finance.tasks.purge_abandoned_checkouts',
+        'schedule': crontab(hour=4, minute=0),
+    },
     # Every day at 03:30 UTC — purge expired OTPs / JWT blacklist rows / old read notifications
     'purge-expired-auth-data': {
         'task': 'apps.accounts.tasks.purge_expired_auth_data',
