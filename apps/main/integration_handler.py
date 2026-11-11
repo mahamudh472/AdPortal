@@ -24,7 +24,8 @@ def fetch_tiktok_ads_account(organization):
         advertisers = requests.get(
             "https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/",
             headers={"Access-Token": access_token},
-            params={"app_id": settings.TIKTOK_APP_ID, 'secret': settings.TIKTOK_APP_SECRET}
+            params={"app_id": settings.TIKTOK_APP_ID, 'secret': settings.TIKTOK_APP_SECRET},
+            timeout=30,
         ).json()
 
         data = advertisers['data']['list']
@@ -50,6 +51,7 @@ def fetch_meta_ads_account(organization, page_id=None):
             ad_accounts = requests.get(
                 "https://graph.facebook.com/v18.0/me/adaccounts",
                 params={"access_token": access_token},
+                timeout=30,
             ).json()
 
             data = ad_accounts.get('data', [])
@@ -64,6 +66,7 @@ def fetch_meta_ads_account(organization, page_id=None):
                 "access_token": access_token,
                 "fields": "id,name,business{id,name}",
             },
+            timeout=30,
         ).json()
 
         if page_details.get("error"):
@@ -90,6 +93,7 @@ def fetch_meta_ads_account(organization, page_id=None):
                     "access_token": access_token,
                     "fields": "id,name,account_id,currency,account_status,business{id,name}",
                 },
+                timeout=30,
             ).json()
 
             for item in ad_accounts.get('data', []):
@@ -133,6 +137,7 @@ def fetch_meta_pages(organization):
     biz_res = requests.get(
         "https://graph.facebook.com/v18.0/me/businesses",
         params={"access_token": access_token},
+        timeout=30,
     ).json()
 
     all_pages = []
@@ -145,6 +150,7 @@ def fetch_meta_pages(organization):
                 "access_token": access_token,
                 "fields": "id,name,category,picture",
             },
+            timeout=30,
         ).json()
 
         for page in pages_res.get("data", []):
@@ -427,6 +433,7 @@ class MetaCallback(APIView):
                 "redirect_uri": settings.META_REDIRECT_URI,
                 "code": code,
             },
+            timeout=30,
         ).json()
 
         if "access_token" not in token_res:
@@ -439,6 +446,7 @@ class MetaCallback(APIView):
         me = requests.get(
             "https://graph.facebook.com/v18.0/me",
             params={"access_token": access_token},
+            timeout=30,
         ).json()
         
         organization = Organization.objects.filter(
@@ -515,6 +523,7 @@ class TikTokCallback(APIView):
                 "secret": settings.TIKTOK_APP_SECRET,
                 "auth_code": code,
             },
+            timeout=30,
         ).json()
 
         if "data" not in res:
@@ -528,6 +537,7 @@ class TikTokCallback(APIView):
         user_info = requests.get(
             "https://business-api.tiktok.com/open_api/v1.3/user/info/",
             headers={"Access-Token": access_token},
+            timeout=30,
         ).json()
 
         organization = Organization.objects.filter(

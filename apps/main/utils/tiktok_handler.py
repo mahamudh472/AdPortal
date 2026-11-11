@@ -727,7 +727,7 @@ def create_tiktok_ad_flow():
         "budget": 50.0, # Minimum is usually 50 in Sandbox
     }
     
-    res = requests.post(url, headers=HEADERS, json=payload)
+    res = requests.post(url, headers=HEADERS, json=payload, timeout=30)
     data = res.json()
     
     if data['code'] != 0:
@@ -757,7 +757,7 @@ def create_tiktok_ad_flow():
         "promotion_type": "WEBSITE", 
     }
     
-    res = requests.post(url, headers=HEADERS, json=payload)
+    res = requests.post(url, headers=HEADERS, json=payload, timeout=30)
     data = res.json()
     
     if data['code'] != 0:
@@ -789,7 +789,7 @@ def create_tiktok_ad_flow():
         # We DO NOT send JSON content-type here
         upload_headers = {"Access-Token": ACCESS_TOKEN} 
         
-        res = requests.post(url, headers=upload_headers, data=data_payload, files=files)
+        res = requests.post(url, headers=upload_headers, data=data_payload, files=files, timeout=300)
         data = res.json()
 
     if data['code'] != 0:
@@ -818,7 +818,7 @@ def create_tiktok_ad_flow():
         ]
     }
     
-    res = requests.post(url, headers=HEADERS, json=payload)
+    res = requests.post(url, headers=HEADERS, json=payload, timeout=30)
     data = res.json()
     
     if data['code'] != 0:
@@ -832,7 +832,7 @@ def get_campaigns():
         "advertiser_id": ADVERTISER_ID
     }
     
-    res = requests.get(url, headers=HEADERS, params=payload)
+    res = requests.get(url, headers=HEADERS, params=payload, timeout=30)
     data = res.json()
     with open('tiktok_campaigns.json', 'w') as f:
         json.dump(data, f, indent=4)
@@ -850,7 +850,7 @@ def get_single_campaign(campaign_id):
         "campaign_ids": [campaign_id]
     }
     
-    res = requests.get(url, headers=HEADERS, params=payload)
+    res = requests.get(url, headers=HEADERS, params=payload, timeout=30)
     data = res.json()
     
     if data['code'] != 0:
@@ -873,7 +873,7 @@ def get_analytics(ACCESS_TOKEN=None, ADVERTISER_ID=None):
     }
     HEADERS["Access-Token"] = ACCESS_TOKEN
     
-    res = requests.get(url, headers=HEADERS, params=payload)
+    res = requests.get(url, headers=HEADERS, params=payload, timeout=30)
 
 
     data = res.json()
@@ -902,7 +902,7 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
     headers = {"Access-Token": ACCESS_TOKEN, "Content-Type": "application/json"}
 
     # 1. Fetch campaigns
-    camp_res = requests.get(f"{BASE_URL}/campaign/get/", headers=headers, params={"advertiser_id": ADVERTISER_ID})
+    camp_res = requests.get(f"{BASE_URL}/campaign/get/", headers=headers, params={"advertiser_id": ADVERTISER_ID}, timeout=30)
     all_campaigns = camp_res.json().get('data', {}).get('list', [])
     
     # Map IDs to Names and filter out deleted/drafts
@@ -927,7 +927,7 @@ def get_detailed_analytics(ACCESS_TOKEN=ACCESS_TOKEN, ADVERTISER_ID=ADVERTISER_I
         "page_size": 100
     }
 
-    res = requests.get(f"{BASE_URL}/report/integrated/get/", headers=headers, params=report_payload)
+    res = requests.get(f"{BASE_URL}/report/integrated/get/", headers=headers, params=report_payload, timeout=30)
     report_data = res.json().get('data', {}).get('list', [])
 
     # 3. Structure the Result
