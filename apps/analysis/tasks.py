@@ -1,4 +1,5 @@
 import logging
+from apps.main.utils.safe_files import excel_safe
 from celery import shared_task
 from datetime import datetime
 from io import BytesIO
@@ -98,7 +99,7 @@ def generate_report_task(self, report_id):
                     # Convert date objects to string for Excel compatibility
                     if hasattr(value, 'isoformat'):
                         value = value.isoformat()
-                    sheet.cell(row=row_num, column=col_num, value=value)
+                    sheet.cell(row=row_num, column=col_num, value=excel_safe(value))
 
             for col in sheet.columns:
                 max_length = 0

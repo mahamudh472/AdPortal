@@ -390,14 +390,14 @@ class CreateAdSerializer(serializers.Serializer):
 
     def validate_ad_file(self, value):
         if value:
-            content_type = value.content_type
-            allowed = self.ALLOWED_IMAGE_TYPES + self.ALLOWED_VIDEO_TYPES
-            if content_type not in allowed:
-                raise serializers.ValidationError(
-                    f"File type '{content_type}' is not supported. "
-                    f"Allowed image types: {', '.join(self.ALLOWED_IMAGE_TYPES)}. "
-                    f"Allowed video types: {', '.join(self.ALLOWED_VIDEO_TYPES)}."
-                )
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            from apps.main.utils.safe_files import detect_media_type
+            try:
+                kind, mime = detect_media_type(value)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(exc.messages)
+            # Never trust the client-declared type: overwrite it with what we detected.
+            value.content_type = mime
         return value
 
     headline = serializers.CharField(required=False)

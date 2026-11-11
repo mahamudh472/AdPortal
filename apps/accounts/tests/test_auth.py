@@ -216,7 +216,7 @@ class LoginTests(AdPortalTestBase):
         avatar_url = res.data["user"]["avatar"]
         self.assertIsNotNone(avatar_url)
         self.assertTrue(avatar_url.startswith("http://") or avatar_url.startswith("https://"))
-        self.assertIn("test_avatar", avatar_url)
+        self.assertIn("/media/avatars/", avatar_url)
 
 
 class TokenRefreshTests(AdPortalTestBase):

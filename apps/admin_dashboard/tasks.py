@@ -1,4 +1,5 @@
 import logging
+from apps.main.utils.safe_files import excel_safe
 from celery import shared_task
 from io import BytesIO
 from django.core.files.base import ContentFile
@@ -80,7 +81,7 @@ def _build_revenue_by_plan(wb, payments_qs):
 
     for row_num, r in enumerate(rows, 2):
         plan_name = r["subscription__plan__name"] or "No Plan"
-        ws.cell(row=row_num, column=1, value=plan_name)
+        ws.cell(row=row_num, column=1, value=excel_safe(plan_name))
         ws.cell(row=row_num, column=2, value=float(r["revenue"] or 0))
         ws.cell(row=row_num, column=3, value=r["count"])
 
@@ -124,8 +125,8 @@ def _build_feature_usage(wb, start_date, end_date):
     ).select_related("organization").order_by("organization__name", "feature_key")
 
     for row_num, rec in enumerate(records, 2):
-        ws.cell(row=row_num, column=1, value=rec.organization.name)
-        ws.cell(row=row_num, column=2, value=rec.feature_key)
+        ws.cell(row=row_num, column=1, value=excel_safe(rec.organization.name))
+        ws.cell(row=row_num, column=2, value=excel_safe(rec.feature_key))
         ws.cell(row=row_num, column=3, value=rec.used)
         ws.cell(row=row_num, column=4, value=_safe_val(rec.period_start))
         ws.cell(row=row_num, column=5, value=_safe_val(rec.period_end))
@@ -217,7 +218,7 @@ def _build_total_transactions(wb, payments_qs):
 
     for row_num, rec in enumerate(records, 2):
         ws.cell(row=row_num, column=1, value=_safe_val(rec.created_at))
-        ws.cell(row=row_num, column=2, value=rec.organization.name)
+        ws.cell(row=row_num, column=2, value=excel_safe(rec.organization.name))
         ws.cell(row=row_num, column=3, value=float(rec.amount))
         ws.cell(row=row_num, column=4, value=rec.currency)
         ws.cell(row=row_num, column=5, value=rec.status)
@@ -235,7 +236,7 @@ def _build_failed_payments(wb, payments_qs):
 
     for row_num, rec in enumerate(records, 2):
         ws.cell(row=row_num, column=1, value=_safe_val(rec.created_at))
-        ws.cell(row=row_num, column=2, value=rec.organization.name)
+        ws.cell(row=row_num, column=2, value=excel_safe(rec.organization.name))
         ws.cell(row=row_num, column=3, value=float(rec.amount))
         ws.cell(row=row_num, column=4, value=rec.currency)
         ws.cell(row=row_num, column=5, value=rec.stripe_payment_intent_id or "")

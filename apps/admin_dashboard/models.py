@@ -1,4 +1,5 @@
 from django.db import models
+from apps.main.utils.safe_files import admin_report_upload_to
 
 
 class AdminReport(models.Model):
@@ -20,7 +21,7 @@ class AdminReport(models.Model):
 
     name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
-    file = models.FileField(upload_to='reports/admin/', blank=True, null=True)
+    file = models.FileField(upload_to=admin_report_upload_to, blank=True, null=True)
     file_size = models.PositiveIntegerField(blank=True, null=True)  # Store file size in bytes
     report_type = models.CharField(max_length=50)  # weekly, monthly, quarterly, custom
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

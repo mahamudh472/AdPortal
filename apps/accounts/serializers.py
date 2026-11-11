@@ -75,6 +75,12 @@ class UserSerializer(serializers.ModelSerializer):
             'gender', 'age', 'date_of_birth', 'timezone', 'joined_at',
         ]
         read_only_fields = ['id', 'joined_at']
+
+    def validate_avatar(self, value):
+        from apps.main.utils.safe_files import MAX_AVATAR_BYTES
+        if value and value.size > MAX_AVATAR_BYTES:
+            raise serializers.ValidationError("Avatar is too large (max 5 MB).")
+        return value
     
 class SimpleUserSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()

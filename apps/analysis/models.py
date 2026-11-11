@@ -1,5 +1,6 @@
 from django.db import models
 from apps.main.models import Platform, Organization
+from apps.main.utils.safe_files import report_upload_to
 
 class AnalysisDaily(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='daily_analyses')
@@ -38,7 +39,7 @@ class Report(models.Model):
     name = models.CharField(max_length=255)
     organization = models.ForeignKey('main.Organization', on_delete=models.CASCADE, related_name='reports')
     created_at = models.DateTimeField(auto_now_add=True)
-    file = models.FileField(upload_to='reports/', blank=True, null=True)
+    file = models.FileField(upload_to=report_upload_to, blank=True, null=True)
     report_type = models.CharField(max_length=50)  # e.g., 'weekly', 'monthly', 'custom'
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     included_platforms = models.JSONField(default=list, blank=True)  # e.g., ['META', 'TIKTOK', 'GOOGLE']

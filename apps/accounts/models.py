@@ -3,6 +3,7 @@ from django.db import models
 import uuid
 from django.utils import timezone
 from apps.main.models import Organization
+from apps.main.utils.safe_files import avatar_upload_to
 
 
 class UserManager(BaseUserManager):
@@ -29,7 +30,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=30, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
 
-    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+    avatar = models.ImageField(upload_to=avatar_upload_to, blank=True, null=True)
     gender = models.CharField(max_length=20, blank=True, null=True,
                               choices=[('male', 'Male'), ('female', 'Female'), ('other', 'Other')])
     age = models.IntegerField(blank=True, null=True)

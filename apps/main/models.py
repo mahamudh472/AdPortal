@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from snowflake import SnowflakeGenerator
 from datetime import timedelta
+from apps.main.utils.safe_files import ad_asset_upload_to
 
 generator = SnowflakeGenerator(1)
 
@@ -356,7 +357,7 @@ class AdAsset(models.Model):
     before they are sent to Facebook/TikTok.
     """
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    file = models.FileField(upload_to='ad_assets/')
+    file = models.FileField(upload_to=ad_asset_upload_to)
     file_type = models.CharField(max_length=10, choices=[('IMAGE', 'Image'), ('VIDEO', 'Video')])
 
     status = models.CharField(

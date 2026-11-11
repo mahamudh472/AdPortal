@@ -190,3 +190,41 @@ class PublicSurfaceTests(MainTestBase):
     def test_admin_router_root_not_public(self):
         self.client.credentials()
         self.assertIn(self.client.get("/api/v1/admin/").status_code, (401, 403))
+
+
+class UploadSafetyTests(MainTestBase):
+    def _png(self):
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), "red").save(buf, "PNG")
+        buf.seek(0)
+        return buf
+
+    def test_real_png_accepted_and_type_detected(self):  # SEC-08
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.main.utils.safe_files import detect_media_type
+        f = SimpleUploadedFile("a.png", self._png().read(), content_type="application/x-wrong")
+        self.assertEqual(detect_media_type(f), ("IMAGE", "image/png"))
+
+    def test_svg_and_fake_images_rejected(self):  # SEC-08
+        from django.core.exceptions import ValidationError
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.main.utils.safe_files import detect_media_type
+        svg = SimpleUploadedFile("x.svg", b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>", content_type="image/png")
+        fake = SimpleUploadedFile("x.png", b"not really an image", content_type="image/png")
+        for f in (svg, fake):
+            with self.assertRaises(ValidationError):
+                detect_media_type(f)
+
+    def test_stored_names_are_unguessable(self):  # SEC-09
+        from apps.main.utils.safe_files import report_upload_to
+        a = report_upload_to(None, "Weekly_report_Acme_20260101.xlsx")
+        self.assertNotIn("Acme", a)
+        self.assertTrue(a.endswith(".xlsx"))
+
+    def test_excel_formula_neutralised(self):  # SEC-25
+        from apps.main.utils.safe_files import excel_safe
+        self.assertEqual(excel_safe('=HYPERLINK("http://x")'), "'=HYPERLINK(\"http://x\")")
+        self.assertEqual(excel_safe("normal"), "normal")
+        self.assertEqual(excel_safe(5), 5)
