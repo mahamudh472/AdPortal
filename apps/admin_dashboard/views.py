@@ -98,6 +98,10 @@ class ChangeUserStatusAPIView(generics.UpdateAPIView):
 
         if user.is_superuser:
             return Response({"error": "Cannot change status of a superuser."}, status=400)
+        if user.is_staff and not request.user.is_superuser:
+            return Response({"error": "Only a superuser can change the status of staff accounts."}, status=403)
+        if user.pk == request.user.pk:
+            return Response({"error": "You cannot change your own status."}, status=400)
 
         if new_status not in ['active', 'inactive', 'suspended']:
             return Response(

@@ -267,8 +267,10 @@ class MarkNotificationReadAPIView(GenericAPIView):
 
     def post(self, request):
         notification_ids = request.data.get('notification_ids', [])
-        if not isinstance(notification_ids, list):
-            return Response({"error": "notification_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(notification_ids, list) or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in notification_ids
+        ):
+            return Response({"error": "notification_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
 
         notifications = Notification.objects.filter(id__in=notification_ids, user=request.user)
         updated_count = notifications.update(read=True)
@@ -289,8 +291,10 @@ class DeleteNotificationAPIView(GenericAPIView):
 
     def post(self, request):
         notification_ids = request.data.get('notification_ids', [])
-        if not isinstance(notification_ids, list):
-            return Response({"error": "notification_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(notification_ids, list) or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in notification_ids
+        ):
+            return Response({"error": "notification_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
 
         notifications = Notification.objects.filter(id__in=notification_ids, user=request.user)
         deleted_count, _ = notifications.delete()
