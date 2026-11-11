@@ -2,6 +2,7 @@ from asyncio import threads
 from datetime import timedelta
 from apps.accounts.permissions import IsOrganizationMember, IsRegularPlatformUser, IsAdminOrOwnerOfOrganization
 from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from urllib.parse import urlencode
 from django.conf import settings
@@ -395,6 +396,8 @@ class MetaConnect(RequiredOrganizationIDMixin, APIView):
         return Response({'redirect_url': url})
 
 class MetaCallback(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     def get(self, request, *args, **kwargs):
         code = request.GET.get('code')
@@ -482,6 +485,8 @@ class TikTokConnect(RequiredOrganizationIDMixin, APIView):
         return Response({'redirect_url': url})
 
 class TikTokCallback(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     def get(self, request, *args, **kwargs):
         code = request.GET.get("code")
@@ -577,6 +582,8 @@ class GoogleConnect(RequiredOrganizationIDMixin, APIView):
 
 
 class GoogleCallback(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     def get(self, request):
         code = request.GET.get("code")

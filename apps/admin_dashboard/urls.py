@@ -2,7 +2,19 @@ from django.urls import path
 from . import views
 from rest_framework.routers import DefaultRouter
 
-router = DefaultRouter()
+from rest_framework.routers import APIRootView
+from rest_framework.permissions import IsAdminUser
+
+
+class StaffOnlyAPIRootView(APIRootView):
+    permission_classes = [IsAdminUser]
+
+
+class StaffOnlyRouter(DefaultRouter):
+    APIRootView = StaffOnlyAPIRootView
+
+
+router = StaffOnlyRouter()
 # Register contact us message viewset
 router.register(r'contact-messages', views.ContactUsMessageViewSet, basename='contact-message')
 

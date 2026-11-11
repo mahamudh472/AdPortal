@@ -169,3 +169,24 @@ class AuthHardeningTests(MainTestBase):
         self.assertEqual(r.status_code, 200)
         r = self.client.post("/api/v1/accounts/verify-email/", {"email": user.email, "otp": new}, format="json")
         self.assertEqual(r.status_code, 400)
+
+
+class PublicSurfaceTests(MainTestBase):
+    def test_schema_requires_staff(self):  # SEC-27
+        self.client.credentials()
+        self.assertIn(self.client.get("/api/schema/").status_code, (401, 403))
+        self.authenticate(self.owner)
+        self.assertEqual(self.client.get("/api/schema/").status_code, 403)
+
+    def test_contact_message_length_capped(self):  # SEC-30
+        self.client.credentials()
+        res = self.client.post(
+            "/api/v1/accounts/contact-us/",
+            {"name": "a", "email": "a@example.com", "subject": "s", "message": "x" * 6000},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_admin_router_root_not_public(self):
+        self.client.credentials()
+        self.assertIn(self.client.get("/api/v1/admin/").status_code, (401, 403))

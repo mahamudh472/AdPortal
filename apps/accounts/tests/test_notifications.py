@@ -1,3 +1,4 @@
+from django.test import override_settings
 """
 Tests for notification endpoints:
   GET  /accounts/notifications/
@@ -191,7 +192,9 @@ class TestNotificationAPITests(AdPortalTestBase):
     def _url(self):
         return reverse("test_notifications")
 
+    @override_settings(DEBUG=True)
     def test_create_test_notification(self):
+        # endpoint is DEBUG-only (audit SEC-26)
         user = self.create_user(email="testn@example.com")
         self.authenticate(user)
         res = self.client.post(self._url())

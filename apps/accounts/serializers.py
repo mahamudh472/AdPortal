@@ -136,6 +136,9 @@ class NotificationSettingsSerializer(serializers.ModelSerializer):
          fields = ['campaign_performance', 'budget_alerts', 'weekly_performance_summary', 'ai_recommendations', 'team_activity']
 
 class ContactUsMessageSerializer(serializers.ModelSerializer):
+    message = serializers.CharField(max_length=5000)
+
     class Meta:
         model = ContactUsMessage
-        fields = "__all__"
+        fields = ['id', 'name', 'email', 'subject', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']

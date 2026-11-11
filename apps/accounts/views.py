@@ -21,13 +21,15 @@ from apps.accounts.serializers import (
 )
 from rest_framework.pagination import PageNumberPagination
 from .models import NotificationSetting, User, OTP, Notification
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import ScopedRateThrottle
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from .otp import issue_otp, consume_otp, check_otp
 
 class RegisterView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     serializer_class = RegisterSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'auth'
@@ -62,6 +64,8 @@ class RegisterView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyEmailView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     serializer_class = VerifyEmailSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'otp'
@@ -94,6 +98,8 @@ class VerifyEmailView(GenericAPIView):
 
 
 class PasswordResetConfirmView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     serializer_class = ResetPasswordConfirmSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'otp'
@@ -154,6 +160,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 
 class SendOTPView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'otp_send'
 
@@ -302,6 +310,9 @@ class TestNotificationAPIView(GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if not settings.DEBUG:
+            from django.http import Http404
+            raise Http404
         user = request.user
         Notification.objects.create(
             user=user,
@@ -337,6 +348,8 @@ class DeleteAccountView(GenericAPIView):
 
 
 class MetaDataDeletionCallbackView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     """
     Meta (Facebook) Data Deletion Callback — thin HTTP adapter.
 
@@ -375,6 +388,8 @@ class MetaDataDeletionCallbackView(GenericAPIView):
 
 
 class CheckOTPView(GenericAPIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'otp'
 
@@ -395,7 +410,10 @@ class CheckOTPView(GenericAPIView):
         return Response({"message": "OTP is valid"}, status=status.HTTP_200_OK)
 
 class ContactUsView(GenericAPIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'contact'
     serializer_class = ContactUsMessageSerializer
 
     def post(self, request):

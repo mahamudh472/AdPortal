@@ -217,6 +217,8 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Secure by default: public endpoints must opt in with AllowAny.
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
@@ -228,9 +230,14 @@ REST_FRAMEWORK = {
         'auth': os.getenv('THROTTLE_AUTH', '10/hour'),
         'otp': os.getenv('THROTTLE_OTP', '10/min'),
         'otp_send': os.getenv('THROTTLE_OTP_SEND', '5/hour'),
+        'contact': os.getenv('THROTTLE_CONTACT', '5/hour'),
     },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+if not DEBUG:
+    # No browsable API in production; schema docs are staff-only (see SPECTACULAR_SETTINGS).
+    REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'] = ('rest_framework.renderers.JSONRenderer',)
+
 if TESTING:
     # Keep the suite deterministic; throttle behaviour is covered by dedicated tests.
     REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
@@ -242,6 +249,7 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API documentation for AdPortal.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.IsAdminUser'],
     'COMPONENT_SPLIT_REQUEST': True,  # Separate request/response components
     'SCHEMA_PATH_PREFIX': '/api/v1',  # API version prefix
 }   

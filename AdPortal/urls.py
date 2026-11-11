@@ -15,6 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from rest_framework.permissions import IsAdminUser
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
@@ -36,7 +37,7 @@ urlpatterns = [
     path('api/v1/auth/google/callback/', GoogleCallback.as_view()),
 
     # path('silk/', include('silk.urls', namespace='silk')),  # disabled — incompatible with Django 6.0
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/schema/', SpectacularAPIView.as_view(permission_classes=[IsAdminUser]), name='schema'),
+    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[IsAdminUser]), name='swagger-ui'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

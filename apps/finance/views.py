@@ -27,6 +27,9 @@ _ORG_ID_PARAM = OpenApiParameter(
 
 
 class PlanListAPIView(ListAPIView):
+    from rest_framework.permissions import AllowAny as _AllowAny
+    permission_classes = [_AllowAny]
+    authentication_classes = []
     serializer_class = PlanSerializer
     queryset = Plan.objects.filter(is_active=True)
 
