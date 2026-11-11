@@ -20,6 +20,9 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def _org_campaign_or_404(view, campaign_id):
     """Return the UnifiedCampaign only if it belongs to the request's org."""
@@ -570,8 +573,9 @@ class MetaCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
                 'stage': exc.stage,
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
+            logger.exception('Unhandled error in %s', self.__class__.__name__)
             return Response(
-                {'error': str(exc)},
+                {'error': 'An internal error occurred.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -611,8 +615,9 @@ class MetaUpdateCampaignTestAPIView(RequiredOrganizationIDMixin, generics.Generi
                 data['platform_ad_id'] = result.platform_ad_id
             return Response(data, status=status.HTTP_200_OK)
         except Exception as exc:
+            logger.exception('Unhandled error in %s', self.__class__.__name__)
             return Response(
-                {'error': str(exc)},
+                {'error': 'An internal error occurred.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -655,8 +660,9 @@ class MetaDeleteAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericAPIVi
                 status=status.HTTP_200_OK,
             )
         except Exception as exc:
+            logger.exception('Unhandled error in %s', self.__class__.__name__)
             return Response(
-                {'error': str(exc)},
+                {'error': 'An internal error occurred.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -839,9 +845,10 @@ class PlatformCreateAdTestAPIView(RequiredOrganizationIDMixin, generics.GenericA
             )
 
         except Exception as exc:
+            logger.exception('Unhandled error in %s', self.__class__.__name__)
             return Response(
                 {
-                    'error': str(exc),
+                    'error': 'An internal error occurred.',
                     'platform': platform,
                     'campaign_id': campaign.id,
                 },

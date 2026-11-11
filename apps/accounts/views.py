@@ -228,9 +228,9 @@ class LogoutView(GenericAPIView):
                 {"message": "Successfully logged out"},
                 status=status.HTTP_205_RESET_CONTENT
             )
-        except Exception as e:
+        except Exception:
             return Response(
-                {"error": str(e)},
+                {"error": "Invalid or expired refresh token"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 class NotifcationListPagination(PageNumberPagination):
@@ -377,8 +377,8 @@ class MetaDataDeletionCallbackView(GenericAPIView):
 
         try:
             result = handle_meta_data_deletion(signed_request)
-        except MetaAppSecretNotConfigured as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except MetaAppSecretNotConfigured:
+            return Response({"error": "Service misconfigured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except MetaSignedRequestMissing as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except MetaSignedRequestInvalid as exc:

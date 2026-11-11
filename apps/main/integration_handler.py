@@ -662,6 +662,15 @@ class GoogleCallback(APIView):
 
         return redirect(settings.FRONTEND_URL+"/google-auth-callback")
 
+import re as _re
+_SAFE_ID = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
+
+
+def _bad_id(*values):
+    """True if any provided id contains characters unsafe to interpolate into provider URLs/headers."""
+    return any(v is not None and not _SAFE_ID.match(str(v)) for v in values)
+
+
 class AdProfileListView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
@@ -671,6 +680,8 @@ class AdProfileListView(RequiredOrganizationIDMixin, APIView):
         if not organization:
             return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
         platform = request.GET.get('platform', "META").upper()
+        if _bad_id(request.GET.get('page_id'), request.GET.get('manager_id')):
+            return Response({'error': 'Invalid identifier.'}, status=status.HTTP_400_BAD_REQUEST)
         profiles = None
         if platform == "META":
             page_id = request.GET.get('page_id')
@@ -714,6 +725,8 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
 
         if not platform or not account_id:
             return Response({'error': 'platform and acc_id are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if _bad_id(account_id, request.data.get('manager_id'), request.data.get('page_id')):
+            return Response({'error': 'Invalid identifier.'}, status=status.HTTP_400_BAD_REQUEST)
 
         snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
@@ -806,6 +819,8 @@ class SelectMetaPageView(RequiredOrganizationIDMixin, APIView):
         page_id = request.data.get('page_id')
         if not page_id:
             return Response({'error': 'page_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if _bad_id(page_id):
+            return Response({'error': 'Invalid identifier.'}, status=status.HTTP_400_BAD_REQUEST)
 
         snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
