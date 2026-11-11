@@ -11,7 +11,8 @@ class RequiredOrganizationIDMixin:
 			raise ValidationError({
 				self.required_url_kwargs: "The parameter is required"
 			})
-		if not Organization.objects.filter(snowflake_id=org_id).exists():
+		from apps.accounts.permissions import get_request_organization
+		if get_request_organization(self.request) is None:
 			raise ValidationError({
 				self.required_url_kwargs: "Organization not found"
 			})

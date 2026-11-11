@@ -9,6 +9,20 @@ def _blocked_by_suspension(permission, request, organization) -> bool:
     return False
 
 
+_MISSING = object()
+
+
+def get_request_organization(request):
+    """Resolve ?org_id= to an Organization once per request (cached on the request)."""
+    cached = getattr(request, '_cached_org', _MISSING)
+    if cached is not _MISSING:
+        return cached
+    org_id = request.query_params.get("org_id")
+    org = Organization.objects.filter(snowflake_id=org_id).first() if org_id else None
+    request._cached_org = org
+    return org
+
+
 class IsRegularPlatformUser(BasePermission):
     """
     Composite permission:
@@ -42,9 +56,8 @@ class IsOrganizationMember(BasePermission):
         if not org_id:
             return False
 
-        try:
-            organization = Organization.objects.get(snowflake_id=org_id)
-        except Organization.DoesNotExist:
+        organization = get_request_organization(request)
+        if organization is None:
             return False
 
         if _blocked_by_suspension(self, request, organization):
@@ -70,9 +83,12 @@ class IsOrgAdminForWrites(BasePermission):
         org_id = request.query_params.get("org_id")
         if not org_id:
             return False
+        organization = get_request_organization(request)
+        if organization is None:
+            return False
         return OrganizationMember.objects.filter(
             user=user,
-            organization__snowflake_id=org_id,
+            organization=organization,
             status='ACTIVE',
             role__in=['ADMIN', 'OWNER'],
         ).exists()
@@ -92,9 +108,8 @@ class IsAdminOrOwnerOfOrganization(BasePermission):
         if not org_id:
             return False
 
-        try:
-            organization = Organization.objects.get(snowflake_id=org_id)
-        except Organization.DoesNotExist:
+        organization = get_request_organization(request)
+        if organization is None:
             return False
 
         if _blocked_by_suspension(self, request, organization):
