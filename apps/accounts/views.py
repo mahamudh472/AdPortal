@@ -79,7 +79,7 @@ class VerifyEmailView(GenericAPIView):
 
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         ok, error = consume_otp(user, input_otp)
         if not ok:
@@ -114,7 +114,7 @@ class PasswordResetConfirmView(GenericAPIView):
 
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Validate the password first so a weak password doesn't burn the OTP.
         try:
@@ -170,7 +170,8 @@ class SendOTPView(GenericAPIView):
 
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User with this email does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+            # Same answer as the success path: don't reveal which e-mails are registered.
+            return Response({"message": "Otp sent successfully"}, status=status.HTTP_200_OK)
 
         otp = issue_otp(user)
 
@@ -198,7 +199,7 @@ class ChangePasswordView(GenericAPIView):
         if serializer.is_valid():
             user = request.user
             if not user:
-                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
             if not user.check_password(serializer.validated_data.get('old_password')):
                 return Response({"error": "Old password is incorrect"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -448,7 +449,7 @@ class CheckOTPView(GenericAPIView):
 
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         ok, error = check_otp(user, input_otp)
         if not ok:

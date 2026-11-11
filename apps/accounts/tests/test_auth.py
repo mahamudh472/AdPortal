@@ -126,13 +126,13 @@ class VerifyEmailTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_verify_email_unknown_email_returns_404(self):
+    def test_verify_email_unknown_email_returns_400(self):
         res = self.client.post(
             self._url(),
             {"email": "ghost@example.com", "otp": "000000"},
             format="json",
         )
-        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.status_code, 400)
 
     def test_verify_email_missing_fields_returns_400(self):
         res = self.client.post(self._url(), {"email": "x@x.com"}, format="json")

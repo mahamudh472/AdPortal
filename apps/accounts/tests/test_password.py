@@ -37,11 +37,11 @@ class SendOTPTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 200)
 
-    def test_send_otp_unknown_email_returns_400(self):
+    def test_send_otp_unknown_email_looks_like_success(self):
         res = self.client.post(
             self._url(), {"email": "ghost@example.com"}, format="json"
         )
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 200)
 
     @patch("apps.accounts.views.send_otp_email")
     def test_password_reset_endpoint_same_behaviour(self, mock_email):
@@ -100,13 +100,13 @@ class CheckOTPTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_check_otp_unknown_user_returns_404(self):
+    def test_check_otp_unknown_user_returns_400(self):
         res = self.client.post(
             self._url(),
             {"email": "nobody@example.com", "otp": "123456"},
             format="json",
         )
-        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.status_code, 400)
 
     def test_check_otp_missing_fields_returns_400(self):
         res = self.client.post(self._url(), {"email": "x@x.com"}, format="json")
@@ -163,7 +163,7 @@ class PasswordResetConfirmTests(AdPortalTestBase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_reset_password_unknown_user_returns_404(self):
+    def test_reset_password_unknown_user_returns_400(self):
         res = self.client.post(
             self._url(),
             {
@@ -173,7 +173,7 @@ class PasswordResetConfirmTests(AdPortalTestBase):
             },
             format="json",
         )
-        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.status_code, 400)
 
     def test_reset_password_missing_new_password_returns_400(self):
         user = self.create_user(email="reset4@example.com")
