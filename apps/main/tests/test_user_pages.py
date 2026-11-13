@@ -324,7 +324,24 @@ class ComputedOptimizationTests(UserPagesBase):
             )
         return campaign
 
-    def test_run_creates_scored_insights_and_real_potential_impact(self):
+    def test_run_queues_ai_and_never_creates_rule_insights(self):
+        from unittest.mock import patch
+
+        self._campaign_with_metrics(
+            "Good", spend=100, conversions=20, value=500, impressions=10000, clicks=300
+        )
+        self._campaign_with_metrics(
+            "Bad", spend=100, conversions=4, value=40, impressions=10000, clicks=40
+        )
+
+        with patch("apps.main.tasks.generate_ai_insights_for_campaign.delay") as queued:
+            res = self.client.post(f"{BASE}/ai-optimization/run/?org_id={self.org_id}")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(queued.call_count, 2)
+        self.assertEqual(AIInsight.objects.filter(organization=self.org).count(), 0)
+
+    def test_budget_recommendation_is_computed_without_fake_insights(self):
         good = self._campaign_with_metrics(
             "Good", spend=100, conversions=20, value=500, impressions=10000, clicks=300
         )
@@ -332,22 +349,10 @@ class ComputedOptimizationTests(UserPagesBase):
             "Bad", spend=100, conversions=4, value=40, impressions=10000, clicks=40
         )
 
-        res = self.client.post(f"{BASE}/ai-optimization/run/?org_id={self.org_id}")
-        self.assertEqual(res.status_code, 200)
-
-        insights = self.client.get(f"{BASE}/ai-insights/", {"org_id": self.org_id})
-        self.assertEqual(insights.status_code, 200)
-        self.assertGreaterEqual(len(insights.data["results"]), 1)
-        row = next(
-            r for r in insights.data["results"]
-            if r["recommendation_type"] in ("BUDGET_INCREASE", "BUDGET_SHIFT")
-        )
-        self.assertIsNotNone(row["confidence"])
-        self.assertTrue(row["expected_delta"])
-
         dashboard = self.client.get(f"{BASE}/dashboard/", {"org_id": self.org_id})
         self.assertIsNotNone(dashboard.data["budget_recommendation"])
         self.assertEqual(dashboard.data["budget_recommendation"]["campaign_id"], good.id)
+        self.assertEqual(AIInsight.objects.filter(organization=self.org).count(), 0)
 
     def test_potential_impact_uses_stored_deltas(self):
         campaign = self.create_campaign("Impact", status="ACTIVE")

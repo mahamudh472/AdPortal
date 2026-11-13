@@ -637,23 +637,35 @@ def apply_budget_recommendation_task(self, optimization_id):
 
 @shared_task(bind=True, max_retries=2, soft_time_limit=300, time_limit=360)
 def run_optimization_for_organization_task(self, organization_id):
-    """Run the rule-based optimization pass for one organization and refresh its insights."""
-    from apps.main.models import Organization, AIOptimizationSettings
-    from apps.main.services.optimization import generate_rule_insights
+    """Queue AI analysis for the organization's active campaigns that have analytics.
+
+    Insights are only ever created by the LLM path (``generate_ai_insights_for_campaign``).
+    There is deliberately no rule-based fallback: an organization with no analytics gets
+    no insights rather than synthetic recommendations.
+    """
+    from apps.main.models import Organization, AIOptimizationSettings, UnifiedCampaign
 
     organization = Organization.objects.filter(id=organization_id).first()
     if organization is None:
-        return {'created': 0, 'updated': 0}
+        return {'queued': 0}
 
-    created, updated = generate_rule_insights(organization)
+    campaign_ids = list(
+        UnifiedCampaign.objects
+        .filter(organization=organization, status='ACTIVE', daily_analyses__isnull=False)
+        .distinct()
+        .values_list('id', flat=True)
+    )
+    for campaign_id in campaign_ids:
+        generate_ai_insights_for_campaign.delay(campaign_id)
+
     settings_obj, _ = AIOptimizationSettings.objects.get_or_create(organization=organization)
     settings_obj.last_optimization_at = timezone.now()
     settings_obj.save(update_fields=['last_optimization_at', 'updated_at'])
     logger.info(
-        "run_optimization_for_organization_task: org=%s created=%s updated=%s",
-        organization.id, created, updated,
+        "run_optimization_for_organization_task: org=%s queued=%s",
+        organization.id, len(campaign_ids),
     )
-    return {'created': created, 'updated': updated}
+    return {'queued': len(campaign_ids)}
 
 
 @shared_task
