@@ -161,12 +161,10 @@ class CampaignService:
 
         dispatched = 0
         for integration in integrations:
-            if integration.platform.upper() == 'GOOGLE':
-                continue
             sync_analytics_task.delay(integration.id, start_date, end_date)
             dispatched += 1
 
         if dispatched == 0:
-            raise ValidationError({'error': 'No supported integrations found (Google analytics not yet supported).'})
+            raise ValidationError({'error': 'No supported integrations found.'})
 
         return {'message': f'Analytics sync initiated for {dispatched} integration(s).'}

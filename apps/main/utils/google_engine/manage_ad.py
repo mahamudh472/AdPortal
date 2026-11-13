@@ -44,7 +44,7 @@ from apps.main.models import (
 logger = logging.getLogger(__name__)
 
 GOOGLE_ADS_API_VERSION = (
-    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v18"))
+    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v26"))
     .strip().strip('"').strip("'")
 )
 if not GOOGLE_ADS_API_VERSION.startswith("v"):

@@ -141,7 +141,9 @@ class AnalyticsExtrasTests(UserPagesBase):
             device_breakdown={"mobile": {"clicks": 10, "impressions": 100}},
         )
         res = self.client.get(f"{BASE}/analytics/", {"org_id": self.org_id})
-        self.assertEqual(res.data["device_performance"]["mobile"], {"clicks": 10, "impressions": 100})
+        mobile = res.data["device_performance"]["mobile"]
+        self.assertEqual(mobile["clicks"], 10)
+        self.assertEqual(mobile["impressions"], 100)
 
 
 class AIInsightsExtrasTests(UserPagesBase):
@@ -215,10 +217,45 @@ class AIOptimizationSettingsTests(UserPagesBase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data["results"], [])
 
-    def test_history_has_entries_with_campaigns(self):
-        self.create_campaign("Any")
+    def test_device_performance_prefers_breakdown_table(self):
+        from apps.analysis.models import AnalysisBreakdownDaily
+
+        campaign = self.create_campaign("Breakdown", status="ACTIVE")
+        self.add_analysis(campaign, 1)
+        AnalysisBreakdownDaily.objects.create(
+            organization=self.org,
+            unified_campaign=campaign,
+            platform="META",
+            account_id="act_1",
+            campaign_id=f"c{campaign.id}",
+            date=timezone.now().date() - timedelta(days=1),
+            dimension="device",
+            key="mobile",
+            impressions=500,
+            clicks=25,
+            spend=12.5,
+            conversions=2,
+            currency="USD",
+        )
+        res = self.client.get(f"{BASE}/analytics/", {"org_id": self.org_id})
+        self.assertEqual(res.data["breakdowns"]["device"][0]["key"], "mobile")
+        self.assertEqual(res.data["device_performance"]["mobile"]["spend"], 12.5)
+
+    def test_history_uses_applied_optimization_log(self):
+        from apps.main.models import AppliedOptimization
+
+        campaign = self.create_campaign("Any")
+        AppliedOptimization.objects.create(
+            organization=self.org,
+            campaign=campaign,
+            kind="BUDGET_INCREASE",
+            title="Increased daily budget on Any",
+            status=AppliedOptimization.Status.APPLIED,
+        )
         res = self.client.get(f"{BASE}/ai-optimization/history/", {"org_id": self.org_id})
-        self.assertGreater(res.data["count"], 0)
+        self.assertEqual(res.data["count"], 1)
+        self.assertEqual(res.data["results"][0]["title"], "Increased daily budget on Any")
+        self.assertEqual(res.data["results"][0]["status"], "Applied")
 
 
 class AudienceReachTests(UserPagesBase):
@@ -269,3 +306,100 @@ class TeamStatsTests(UserPagesBase):
         self.assertEqual(res.data["pending_invitations"], 1)
         self.assertEqual(res.data["total_members"], 1)
         self.assertEqual(res.data["inactive_members"], 0)
+
+
+class ComputedOptimizationTests(UserPagesBase):
+    def _campaign_with_metrics(self, name, *, spend, conversions, value, impressions, clicks):
+        campaign = self.create_campaign(name, status="ACTIVE")
+        for days_ago in (1, 2, 3):
+            self.add_analysis(
+                campaign, days_ago,
+                spend=spend / 3, conversions=conversions / 3,
+                conversion_value=value / 3, impressions=impressions // 3,
+                clicks=clicks // 3,
+                roas=(value / spend) if spend else 0,
+                cpa=(spend / conversions) if conversions else 0,
+                ctr=(clicks / impressions * 100) if impressions else 0,
+                adgroup_id=f"ag-{days_ago}",
+            )
+        return campaign
+
+    def test_run_creates_scored_insights_and_real_potential_impact(self):
+        good = self._campaign_with_metrics(
+            "Good", spend=100, conversions=20, value=500, impressions=10000, clicks=300
+        )
+        self._campaign_with_metrics(
+            "Bad", spend=100, conversions=4, value=40, impressions=10000, clicks=40
+        )
+
+        res = self.client.post(f"{BASE}/ai-optimization/run/?org_id={self.org_id}")
+        self.assertEqual(res.status_code, 200)
+
+        insights = self.client.get(f"{BASE}/ai-insights/", {"org_id": self.org_id})
+        self.assertEqual(insights.status_code, 200)
+        self.assertGreaterEqual(len(insights.data["results"]), 1)
+        row = next(
+            r for r in insights.data["results"]
+            if r["recommendation_type"] in ("BUDGET_INCREASE", "BUDGET_SHIFT")
+        )
+        self.assertIsNotNone(row["confidence"])
+        self.assertTrue(row["expected_delta"])
+
+        dashboard = self.client.get(f"{BASE}/dashboard/", {"org_id": self.org_id})
+        self.assertIsNotNone(dashboard.data["budget_recommendation"])
+        self.assertEqual(dashboard.data["budget_recommendation"]["campaign_id"], good.id)
+
+    def test_potential_impact_uses_stored_deltas(self):
+        campaign = self.create_campaign("Impact", status="ACTIVE")
+        AIInsight.objects.create(
+            organization=self.org, campaign=campaign, title="Scale",
+            description="d", impact="HIGH", recommendation_type="BUDGET_INCREASE",
+            expected_delta={"conversions": [5, 12], "roas": [4, 8]}, confidence=80,
+        )
+        res = self.client.get(f"{BASE}/ai-insights/", {"org_id": self.org_id})
+        self.assertEqual(res.data["potential_impact"]["conversions"], "+5% to +12%")
+        self.assertEqual(res.data["potential_impact"]["roas"], "+4% to +8%")
+
+    def test_summary_counts_applied_optimizations_today(self):
+        from apps.main.models import AppliedOptimization
+
+        campaign = self.create_campaign("Applied", status="ACTIVE")
+        AppliedOptimization.objects.create(
+            organization=self.org,
+            campaign=campaign,
+            kind="BUDGET_INCREASE",
+            title="Applied",
+            status=AppliedOptimization.Status.APPLIED,
+            measured_impact={"savings": 42.5},
+        )
+        res = self.client.get(f"{BASE}/ai-insights/", {"org_id": self.org_id})
+        self.assertEqual(res.data["summary"]["applied_today"], 1)
+        self.assertEqual(res.data["summary"]["est_savings"], 42.5)
+
+
+class AppliedOptimizationMeasurementTests(UserPagesBase):
+    def test_measurement_fills_savings_after_seven_days(self):
+        from apps.main.models import AppliedOptimization
+        from apps.main.services.optimization import measure_applied_optimizations
+
+        campaign = self.create_campaign("Measured", status="ACTIVE")
+        for days_ago in range(15, 8, -1):
+            self.add_analysis(campaign, days_ago, spend=100, conversions=5, conversion_value=50)
+        for days_ago in range(8, 1, -1):
+            self.add_analysis(campaign, days_ago, spend=100, conversions=10, conversion_value=100)
+
+        entry = AppliedOptimization.objects.create(
+            organization=self.org,
+            campaign=campaign,
+            kind="BUDGET_INCREASE",
+            title="Measured change",
+            status=AppliedOptimization.Status.APPLIED,
+        )
+        AppliedOptimization.objects.filter(id=entry.id).update(
+            created_at=timezone.now() - timedelta(days=8)
+        )
+
+        self.assertEqual(measure_applied_optimizations(), 1)
+        entry.refresh_from_db()
+        self.assertEqual(entry.measured_impact["savings"], 700.0)
+        self.assertIn("CPA -50%", entry.measured_impact["summary"])

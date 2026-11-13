@@ -1,7 +1,7 @@
 """
 Google Ads Analytics — Fetch daily performance data and save to AnalysisDaily.
 
-Uses Google Ads REST API v18 (GAQL search):
+Uses Google Ads REST API v26 (GAQL search):
   POST /customers/{cid}/googleAds:search
 
 Docs: https://developers.google.com/google-ads/api/docs/reporting/overview
@@ -29,7 +29,7 @@ from apps.main.models import PlatformCampaign
 logger = logging.getLogger(__name__)
 
 GOOGLE_ADS_API_VERSION = (
-    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v18"))
+    str(getattr(settings, "GOOGLE_ADS_API_VERSION", "v26"))
     .strip().strip('"').strip("'")
 )
 if not GOOGLE_ADS_API_VERSION.startswith("v"):
@@ -125,167 +125,182 @@ def _google_search(cid: str, access_token: str, query: str) -> list[dict]:
 # CAMPAIGN-LEVEL ANALYTICS
 # ============================================================
 
-@transaction.atomic
+def _gaql_in(ids):
+    # Campaign ids come from our own DB, but keep the clause strictly numeric.
+    return ", ".join(str(int(i)) for i in ids if str(i).isdigit())
+
+
+def _micros(value):
+    return int(value or 0) / 1_000_000
+
+
+def _metric_parts(m):
+    """(impressions, clicks, spend, conversions, conversion_value) from a GAQL metrics dict."""
+    return (
+        int(m.get("impressions", 0) or 0),
+        int(m.get("clicks", 0) or 0),
+        _micros(m.get("costMicros")),
+        float(m.get("conversions", 0) or 0),
+        float(m.get("conversionsValue", 0) or 0),
+    )
+
+
+BREAKDOWN_METRICS = (
+    "metrics.impressions, metrics.clicks, metrics.cost_micros, "
+    "metrics.conversions, metrics.conversions_value"
+)
+
+
+def _breakdown_query(select_extra, resource, id_list, start_str, end_str, extra_where=""):
+    return f"""
+        SELECT campaign.id, segments.date, {select_extra}, {BREAKDOWN_METRICS}
+        FROM {resource}
+        WHERE campaign.id IN ({id_list})
+          AND segments.date BETWEEN '{start_str}' AND '{end_str}' {extra_where}
+    """
+
+
+def _dig(row, path):
+    cur = row
+    for part in path.split("."):
+        cur = cur.get(part) if isinstance(cur, dict) else None
+        if cur is None:
+            return None
+    return cur
+
+
+def _sync_google_breakdowns(integration, cid, token, pc_map, start, end):
+    """Optional breakdowns; each is isolated so one incompatible query cannot fail the sync."""
+    from apps.analysis.ingest import parse_hour, replace_breakdown
+
+    start_str, end_str = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    id_list = _gaql_in(pc_map.keys())
+    failures = []
+
+    # (dimension, resource, segment/attribute field, path in the response row, key transform)
+    specs = [
+        ("device", "campaign", "segments.device", "segments.device", str.lower),
+        ("hour", "campaign", "segments.hour", "segments.hour", parse_hour),
+        ("placement", "campaign", "segments.ad_network_type", "segments.adNetworkType", str.lower),
+        ("age", "age_range_view", "ad_group_criterion.age_range.type",
+         "adGroupCriterion.ageRange.type", lambda v: v.replace("AGE_RANGE_", "").replace("_", "-").lower()),
+        ("gender", "gender_view", "ad_group_criterion.gender.type",
+         "adGroupCriterion.gender.type", str.lower),
+        ("country", "geographic_view", "segments.country_localized_name",
+         "segments.countryLocalizedName", lambda v: str(v).strip()[:100]),
+    ]
+    for dimension, resource, select_field, path, transform in specs:
+        try:
+            rows = _google_search(cid, token, _breakdown_query(select_field, resource, id_list, start_str, end_str))
+            per_campaign = {}
+            for row in rows:
+                campaign_id = str(_dig(row, "campaign.id") or "")
+                day = _dig(row, "segments.date")
+                raw = _dig(row, path)
+                if campaign_id not in pc_map or not day or raw is None:
+                    continue
+                key = transform(str(raw))
+                if not key:
+                    continue
+                impressions, clicks, spend, conversions, value = _metric_parts(row.get("metrics", {}))
+                per_campaign.setdefault(campaign_id, []).append({
+                    "date": datetime.strptime(day, "%Y-%m-%d").date(), "key": key,
+                    "impressions": impressions, "clicks": clicks, "spend": spend,
+                    "conversions": conversions, "conversion_value": value,
+                })
+            for campaign_id, pc in pc_map.items():
+                replace_breakdown(
+                    integration=integration, unified_campaign=pc.unified_campaign,
+                    campaign_id=campaign_id, dimension=dimension, start=start, end=end,
+                    rows=per_campaign.get(campaign_id, []),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Google %s breakdown failed for %s: %s", dimension, integration, exc)
+            failures.append(f"{dimension}: {str(exc)[:120]}")
+    return failures
+
+
 def generate_google_campaign_analysis(
     integration,
     start_date: date | None = None,
     end_date: date | None = None,
 ):
     """
-    Fetch Google Ads campaign-level daily performance metrics and upsert
-    into AnalysisDaily.
+    Fetch Google Ads campaign-level daily metrics (+ breakdowns) and upsert them.
 
-    Parameters
-    ----------
-    integration : AdIntegration
-        The Google integration (must have access_token and ad_account_id).
-    start_date : date | None
-        Start of the date range. Defaults to 30 days ago.
-    end_date : date | None
-        End of the date range. Defaults to yesterday.
+    Defaults to the rolling 28-day window (conversions are reported late). Revenue is
+    ``metrics.conversions_value``; "conversions" is Google's ``metrics.conversions``.
     """
-    if not start_date:
-        start_date = date.today() - timedelta(days=30)
-    if not end_date:
-        end_date = date.today() - timedelta(days=1)
+    from apps.analysis.ingest import default_window, mark_sync_result, save_daily
 
-    # Build lookup: google campaign_id → PlatformCampaign
+    start_date, end_date = default_window(start_date, end_date)
+
     platform_campaigns = PlatformCampaign.objects.filter(
         integration=integration,
         platform_campaign_id__isnull=False,
     ).select_related("unified_campaign")
-
-    pc_map = {}
-    for pc in platform_campaigns:
-        if pc.unified_campaign:
-            pc_map[pc.platform_campaign_id] = pc
-
+    pc_map = {pc.platform_campaign_id: pc for pc in platform_campaigns if pc.unified_campaign}
     if not pc_map:
-        logger.info(
-            "No Google platform campaigns found for %s — skipping analytics.",
-            integration,
-        )
+        logger.info("No Google platform campaigns found for %s — skipping analytics.", integration)
         return
 
     cid = _customer_id(integration)
     token = _get_valid_token(integration)
-
-    # Format dates for GAQL
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
-
-    # Build GAQL campaign_id IN clause
-    id_list = ", ".join(pc_map.keys())
+    id_list = _gaql_in(pc_map.keys())
 
     query = f"""
         SELECT
             campaign.id,
             campaign.name,
             segments.date,
-            metrics.impressions,
-            metrics.clicks,
-            metrics.cost_micros,
-            metrics.ctr,
-            metrics.average_cpc,
-            metrics.average_cpm,
-            metrics.conversions,
-            metrics.cost_per_conversion,
-            metrics.value_per_conversion,
-            campaign_budget.amount_micros,
-            campaign_budget.type
+            {BREAKDOWN_METRICS},
+            metrics.video_views
         FROM campaign
         WHERE campaign.id IN ({id_list})
           AND segments.date BETWEEN '{start_str}' AND '{end_str}'
           AND campaign.status != 'REMOVED'
         ORDER BY campaign.id, segments.date
     """
-
-    logger.info(
-        "Fetching Google analytics for %d campaigns, %s → %s",
-        len(pc_map), start_str, end_str,
-    )
-
     rows = _google_search(cid, token, query)
     logger.info("Got %d report rows from Google Ads", len(rows))
-
-    # Fetch budget info once per campaign for budget_type / budget_amount
     budget_info = _fetch_campaign_budgets(cid, token, list(pc_map.keys()))
 
     saved = 0
     for row in rows:
-        c = row.get("campaign", {})
-        seg = row.get("segments", {})
-        m = row.get("metrics", {})
-
-        campaign_id = str(c.get("id", ""))
-        stat_day = seg.get("date", "")
-
+        campaign_id = str(row.get("campaign", {}).get("id", ""))
+        stat_day = row.get("segments", {}).get("date", "")
         pc = pc_map.get(campaign_id)
         if not pc or not stat_day:
             continue
-
-        unified = pc.unified_campaign
-
         try:
             row_date = datetime.strptime(stat_day, "%Y-%m-%d").date()
         except ValueError:
             continue
 
-        # Cost: micros → currency units
-        cost_micros = int(m.get("costMicros", 0) or 0)
-        spend = cost_micros / 1_000_000
-
-        impressions = int(m.get("impressions", 0) or 0)
-        clicks = int(m.get("clicks", 0) or 0)
-        # ctr from Google is a decimal fraction (e.g. 0.05 = 5%)
-        ctr = float(m.get("ctr", 0) or 0) * 100
-        # average_cpc / average_cpm also in micros
-        cpc_micros = int(m.get("averageCpc", 0) or 0)
-        cpm_micros = int(m.get("averageCpm", 0) or 0)
-        cpc = cpc_micros / 1_000_000
-        cpm = cpm_micros / 1_000_000
-
-        conversions = float(m.get("conversions", 0) or 0)
-        cpa_micros = int(m.get("costPerConversion", 0) or 0)
-        cpa = cpa_micros / 1_000_000
-
-        # ROAS: (value_per_conversion * conversions) / spend
-        value_per_conv = float(m.get("valuePerConversion", 0) or 0)
-        total_value = value_per_conv * conversions
-        roas = (total_value / spend) if spend > 0 else 0.0
-
-        # Budget metadata for this campaign
+        m = row.get("metrics", {})
+        impressions, clicks, spend, conversions, value = _metric_parts(m)
         binfo = budget_info.get(campaign_id, {})
-        budget_type = binfo.get("budget_type")
-        budget_amount = binfo.get("budget_amount")
-
-        AnalysisDaily.objects.update_or_create(
-            platform="GOOGLE",
-            account_id=integration.ad_account_id,
+        save_daily(
+            integration=integration,
+            unified_campaign=pc.unified_campaign,
             campaign_id=campaign_id,
-            adgroup_id=None,
-            date=row_date,
-            defaults={
-                "organization": integration.organization,
-                "unified_campaign": unified,
-                "campaign_name": unified.name,
-                "impressions": impressions,
-                "clicks": clicks,
-                "spend": spend,
-                "ctr": ctr,
-                "cpc": cpc,
-                "cpm": cpm,
-                "conversions": int(conversions),
-                "cpa": cpa,
-                "roas": roas,
-                "device_breakdown": {},
-                "budget_type": budget_type,
-                "budget_amount": budget_amount,
-            },
+            row_date=row_date,
+            impressions=impressions,
+            clicks=clicks,
+            spend=spend,
+            conversions=conversions,
+            conversion_value=value,
+            video_views=int(float(m.get("videoViews", 0) or 0)),
+            budget_type=binfo.get("budget_type"),
+            budget_amount=binfo.get("budget_amount"),
         )
         saved += 1
-
     logger.info("Saved %d Google AnalysisDaily records (campaign level).", saved)
+
+    failures = _sync_google_breakdowns(integration, cid, token, pc_map, start_date, end_date)
+    mark_sync_result(integration, failures)
 
 
 # ============================================================

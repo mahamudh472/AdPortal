@@ -102,59 +102,35 @@ class AIService:
                 'ctr': (clicks / impressions * 100) if impressions else 0.0,
                 'cpc': (spend / clicks) if clicks else 0.0,
             }
-        return {'campaigns_per_title': per_title, 'campaign_metrics': campaign_metrics}
-
-    def get_optimization_summary(self, organization):
-        from apps.main.models import AIInsight
-
-        insights = AIInsight.objects.filter(organization=organization)
-        # TODO: ``applied_today`` and ``est_savings`` need an "applied" state on AIInsight and
-        # a savings calculation from budget re-allocations. Static until that exists.
+        campaign_currencies = dict(
+            UnifiedCampaign.objects
+            .filter(id__in={i.campaign_id for i in insights if i.campaign_id})
+            .values_list('id', 'currency')
+        )
         return {
-            'active_insights': insights.count(),
-            'high_priority': insights.filter(impact='HIGH').count(),
-            'applied_today': 0,
-            'est_savings': 0.0,
+            'campaigns_per_title': per_title,
+            'campaign_metrics': campaign_metrics,
+            'campaign_currencies': campaign_currencies,
         }
 
+    def get_optimization_summary(self, organization):
+        from apps.main.services.optimization import get_optimization_summary
+        return get_optimization_summary(organization)
+
     def get_potential_impact(self, organization):
-        # TODO: derive from the projected effect of the open insights instead of fixed estimates.
-        return {'conversions': '+25%', 'cost_per_result': '-15%', 'roas': '+18%'}
+        from apps.main.services.optimization import get_potential_impact
+        return get_potential_impact(organization)
 
     def get_optimization_history(self, organization):
-        # TODO: record every applied optimization (budget shifts, copy updates, ...) and return
-        # the real log. Until then orgs that have campaigns get illustrative entries.
-        if not UnifiedCampaign.objects.filter(organization=organization).exists():
-            return []
-        now = timezone.now()
-        return [
-            {
-                'id': 'h-1',
-                'title': 'Applied +20% budget to top performing campaign',
-                'time': (now - timedelta(hours=3)).isoformat(),
-                'impact': 'Conversions increased by +14%',
-                'status': 'Applied',
-            },
-            {
-                'id': 'h-2',
-                'title': 'Updated ad copy headlines',
-                'time': (now - timedelta(days=1)).isoformat(),
-                'impact': 'CTR improved by +9%',
-                'status': 'Applied',
-            },
-            {
-                'id': 'h-3',
-                'title': 'Reallocated daily budget between platforms',
-                'time': (now - timedelta(days=4)).isoformat(),
-                'impact': 'CPA reduced by -12%',
-                'status': 'Applied',
-            },
-        ]
+        from apps.main.services.optimization import get_optimization_history
+        return get_optimization_history(organization)
 
     def run_optimization(self, organization):
-        # TODO: dispatch the real analysis (``run_optimization_analysis``) as a Celery task and
-        # persist the insights it produces. For now only the timestamp is recorded.
+        """Queue the rule-based analysis; the task refreshes the open insights."""
+        from apps.main.tasks import run_optimization_for_organization_task
+
         settings_obj = self.get_optimization_settings(organization)
+        run_optimization_for_organization_task.delay(organization.id)
         settings_obj.last_optimization_at = timezone.now()
         settings_obj.save(update_fields=['last_optimization_at', 'updated_at'])
         return settings_obj

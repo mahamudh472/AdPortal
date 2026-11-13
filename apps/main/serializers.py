@@ -565,22 +565,31 @@ class AIInsightDetailSerializer(AIInsightSerializer):
     class Meta(AIInsightSerializer.Meta):
         fields = AIInsightSerializer.Meta.fields + [
             'campaign', 'campaign_name', 'metrics', 'campaigns_count', 'action_text', 'action_type',
+            'recommendation_type', 'expected_delta', 'confidence', 'status',
         ]
 
-    # TODO: the insight model does not store a structured recommendation yet, so the
-    # action is derived from the impact level. Replace with the action the AI engine
-    # actually recommends once ``run_optimization_analysis`` persists it.
-    _ACTIONS = {
+    # Legacy insights (created before structured recommendations) fall back to the
+    # impact level. New insights carry a recommendation_type from the rule engine.
+    _LEGACY_ACTIONS = {
         'HIGH': ('Apply Suggestion', 'apply'),
         'MEDIUM': ('Fix with AI', 'fix'),
         'LOW': ('Generate Suggestions', 'generate'),
     }
 
+    def _action(self, obj):
+        if obj.status != 'OPEN':
+            return 'No Action Needed', 'none'
+        from apps.main.services.optimization import ACTION_BY_TYPE
+
+        if obj.recommendation_type and obj.recommendation_type != 'GENERAL':
+            return ACTION_BY_TYPE.get(obj.recommendation_type, ('Generate Suggestions', 'generate'))
+        return self._LEGACY_ACTIONS.get(obj.impact, ('Generate Suggestions', 'generate'))
+
     def get_action_text(self, obj):
-        return self._ACTIONS.get(obj.impact, ('No Action Needed', 'none'))[0]
+        return self._action(obj)[0]
 
     def get_action_type(self, obj):
-        return self._ACTIONS.get(obj.impact, ('No Action Needed', 'none'))[1]
+        return self._action(obj)[1]
 
     def get_campaigns_count(self, obj):
         counts = self.context.get('campaigns_per_title') or {}
@@ -592,9 +601,12 @@ class AIInsightDetailSerializer(AIInsightSerializer):
         m = metrics_by_campaign.get(obj.campaign_id)
         if not m:
             return []
+        from apps.main.utils.helper import format_money
+
+        currency = (self.context.get('campaign_currencies') or {}).get(obj.campaign_id) or 'USD'
         return [
             {'label': 'CTR', 'value': f"{m['ctr']:.2f}%"},
-            {'label': 'CPC', 'value': f"${m['cpc']:.2f}"},
+            {'label': 'CPC', 'value': format_money(m['cpc'], currency)},
         ]
 
 

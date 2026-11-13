@@ -17,6 +17,8 @@ from django.shortcuts import redirect
 
 from apps.main.utils.google_oauth import generate_oauth_state, validate_oauth_state
 
+GRAPH_URL = f"https://graph.facebook.com/{getattr(settings, 'META_API_VERSION', 'v24.0')}"
+
 def fetch_tiktok_ads_account(organization):
     ad_profile = AdIntegration.objects.filter(organization=organization, platform=Platform.TIKTOK).first()
     if ad_profile:
@@ -48,7 +50,7 @@ def fetch_meta_ads_account(organization, page_id=None):
 
         # Keep backward compatibility for callers that still request the unfiltered list.
         if not page_id:
-            ad_accounts = requests.get('https://graph.facebook.com/v18.0/me/adaccounts', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+            ad_accounts = requests.get(GRAPH_URL + '/me/adaccounts', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
             data = ad_accounts.get('data', [])
             for item in data:
@@ -56,7 +58,7 @@ def fetch_meta_ads_account(organization, page_id=None):
 
             return ad_accounts
 
-        page_details = requests.get(f'https://graph.facebook.com/v18.0/{page_id}', params={'fields': 'id,name,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+        page_details = requests.get(f'{GRAPH_URL}/{page_id}', params={'fields': 'id,name,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
         if page_details.get("error"):
             return {
@@ -76,7 +78,7 @@ def fetch_meta_ads_account(organization, page_id=None):
         all_accounts = []
         seen_accounts = set()
         for edge in ["owned_ad_accounts", "client_ad_accounts"]:
-            ad_accounts = requests.get(f'https://graph.facebook.com/v18.0/{business_id}/{edge}', params={'fields': 'id,name,account_id,currency,account_status,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+            ad_accounts = requests.get(f'{GRAPH_URL}/{business_id}/{edge}', params={'fields': 'id,name,account_id,currency,account_status,business{id,name}'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
             for item in ad_accounts.get('data', []):
                 acc_id = item.get('id')
@@ -116,13 +118,13 @@ def fetch_meta_pages(organization):
     access_token = ad_profile.access_token
 
     # Get all businesses the user manages
-    biz_res = requests.get('https://graph.facebook.com/v18.0/me/businesses', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+    biz_res = requests.get(GRAPH_URL + '/me/businesses', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
     all_pages = []
     seen_ids = set()
 
     for biz in biz_res.get("data", []):
-        pages_res = requests.get(f'https://graph.facebook.com/v18.0/{biz['id']}/owned_pages', params={'fields': 'id,name,category,picture'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+        pages_res = requests.get(f'{GRAPH_URL}/{biz['id']}/owned_pages', params={'fields': 'id,name,category,picture'}, timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
 
         for page in pages_res.get("data", []):
             if page["id"] not in seen_ids:
@@ -368,7 +370,7 @@ class MetaConnect(RequiredOrganizationIDMixin, APIView):
             "auth_type": "rerequest",
             'state': state
         }
-        url = "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params)
+        url = f"https://www.facebook.com/{getattr(settings, 'META_API_VERSION', 'v24.0')}/dialog/oauth?" + urlencode(params)
 
         return Response({'redirect_url': url})
 
@@ -400,7 +402,7 @@ class MetaCallback(APIView):
 
         # POST keeps the app secret and code out of URLs / access logs.
         token_res = requests.post(
-            "https://graph.facebook.com/v18.0/oauth/access_token",
+            GRAPH_URL + "/oauth/access_token",
             data={
                 "client_id": settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
@@ -421,7 +423,7 @@ class MetaCallback(APIView):
         # integration doesn't silently die.
         try:
             long_res = requests.post(
-                "https://graph.facebook.com/v18.0/oauth/access_token",
+                GRAPH_URL + "/oauth/access_token",
                 data={
                     "grant_type": "fb_exchange_token",
                     "client_id": settings.META_APP_ID,
@@ -437,7 +439,7 @@ class MetaCallback(APIView):
             logger.warning("Meta long-lived token exchange failed; keeping short-lived token")
         expires_at = now() + timedelta(seconds=expires_in)
 
-        me = requests.get('https://graph.facebook.com/v18.0/me', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
+        me = requests.get(GRAPH_URL + '/me', timeout=30, headers={'Authorization': 'Bearer ' + access_token}).json()
         
         organization = Organization.objects.filter(
             memberships__user=user, snowflake_id=org_id
@@ -668,6 +670,30 @@ def _bad_id(*values):
     return any(v is not None and not _SAFE_ID.match(str(v)) for v in values)
 
 
+def _queue_initial_sync(integration):
+    """First time an ad account is selected, sync campaigns then backfill analytics.
+
+    The chain guarantees analytics only runs after the platform campaign rows exist, which
+    Meta/TikTok analytics require. Re-selecting an account does not re-backfill.
+    """
+    if integration.analytics_synced_at is not None:
+        return
+    from celery import chain
+    from apps.analysis.ingest import BACKFILL_MAX_DAYS
+    from apps.main.tasks import sync_ads_task, sync_analytics_task
+
+    end = now().date()
+    days = BACKFILL_MAX_DAYS if integration.platform == 'META' else 365
+    start = end - timedelta(days=days - 1)
+    try:
+        chain(
+            sync_ads_task.si(integration.id),
+            sync_analytics_task.si(integration.id, start, end),
+        ).apply_async()
+    except Exception as exc:  # noqa: BLE001 - selecting an account must still succeed
+        logger.warning("Could not queue initial sync for integration %s: %s", integration.id, exc)
+
+
 class AdProfileListView(RequiredOrganizationIDMixin, APIView):
     permission_classes = [IsRegularPlatformUser, IsOrganizationMember]
 
@@ -765,6 +791,7 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
             integration.ad_account_id = str(account_id)
             integration.page_id = str(page_id)
             integration.save(update_fields=["ad_account_id", "page_id"])
+            _queue_initial_sync(integration)
             return Response({
                 "success": "Ad account selected.",
                 "ad_account_id": integration.ad_account_id,
@@ -779,6 +806,7 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
             integration.ad_account_id = str(account_id)
             integration.manager_id = str(manager_id)
             integration.save(update_fields=["ad_account_id", "manager_id"])
+            _queue_initial_sync(integration)
             return Response({
                 "success": "Ad account selected.",
                 "ad_account_id": integration.ad_account_id,
@@ -787,6 +815,7 @@ class SelectAdProfileView(RequiredOrganizationIDMixin, APIView):
 
         integration.ad_account_id = account_id
         integration.save(update_fields=["ad_account_id"])
+        _queue_initial_sync(integration)
 
         return Response({"success": "Ad account selected.", "ad_account_id": integration.ad_account_id})
 

@@ -154,7 +154,12 @@ class AdIntegration(models.Model):
     # Metadata (e.g., Name of the ad account, currency)
     account_name = models.CharField(max_length=255, null=True, blank=True)
     currency = models.CharField(max_length=10, default='USD')
-    
+    # Ad-account time zone (IANA name); daily report rows are dated in this zone.
+    time_zone = models.CharField(max_length=64, blank=True, default='')
+    # Analytics sync health, surfaced to the dashboard as "last updated".
+    analytics_synced_at = models.DateTimeField(null=True, blank=True)
+    analytics_error = models.TextField(blank=True, default='')
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -464,12 +469,61 @@ class AIInsight(models.Model):
     impact = models.CharField(max_length=20, choices=[('HIGH', 'High'), ('MEDIUM', 'Medium'), ('LOW', 'Low')], default='MEDIUM')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class RecommendationType(models.TextChoices):
+        BUDGET_SHIFT = 'BUDGET_SHIFT', 'Shift budget'
+        BUDGET_INCREASE = 'BUDGET_INCREASE', 'Increase budget'
+        REFRESH_CREATIVE = 'REFRESH_CREATIVE', 'Refresh creative'
+        IMPROVE_TARGETING = 'IMPROVE_TARGETING', 'Improve targeting'
+        SCHEDULE = 'SCHEDULE', 'Adjust schedule'
+        GENERAL = 'GENERAL', 'General'
+
+    class InsightStatus(models.TextChoices):
+        OPEN = 'OPEN', 'Open'
+        APPLIED = 'APPLIED', 'Applied'
+        DISMISSED = 'DISMISSED', 'Dismissed'
+
+    recommendation_type = models.CharField(max_length=30, choices=RecommendationType.choices, default=RecommendationType.GENERAL)
+    # What the recommendation acts on, e.g. {"platform": "GOOGLE", "budget_change_percent": 20}.
+    params = models.JSONField(default=dict, blank=True)
+    # Projected effect, e.g. {"roas": [5, 15]} meaning +5% to +15%. Never invented by the LLM.
+    expected_delta = models.JSONField(default=dict, blank=True)
+    # 0-100, computed from data volume / effect size / consistency. Null = not scored.
+    confidence = models.PositiveSmallIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=InsightStatus.choices, default=InsightStatus.OPEN)
+    applied_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['organization', 'created_at']),
             models.Index(fields=['campaign', 'created_at']),
         ]
+
+
+class AppliedOptimization(models.Model):
+    """Audit log of every optimization applied to a campaign (manual or AI)."""
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        APPLIED = 'APPLIED', 'Applied'
+        FAILED = 'FAILED', 'Failed'
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='applied_optimizations')
+    campaign = models.ForeignKey(UnifiedCampaign, on_delete=models.CASCADE, related_name='applied_optimizations')
+    insight = models.ForeignKey(AIInsight, on_delete=models.SET_NULL, null=True, blank=True, related_name='applications')
+    applied_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    kind = models.CharField(max_length=30)
+    title = models.CharField(max_length=255)
+    before = models.JSONField(default=dict, blank=True)
+    after = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    error_message = models.TextField(blank=True, default='')
+    # Measured change over the 7 days after applying (filled by a follow-up task).
+    measured_impact = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['organization', 'created_at'])]
 
 class IntegrationSyncState(models.Model):
     integration = models.OneToOneField(

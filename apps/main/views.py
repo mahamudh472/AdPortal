@@ -944,6 +944,9 @@ class ApplyBudgetRecommendationAPIView(RequiredOrganizationIDMixin, generics.Gen
     permission_classes = [IsRegularPlatformUser, IsAdminOrOwnerOfOrganization]
 
     def post(self, request, *args, **kwargs):
+        from apps.main.models import AppliedOptimization
+        from apps.main.tasks import apply_budget_recommendation_task
+
         snowflake_id = self.get_org_id()
         organization = Organization.objects.filter(snowflake_id=snowflake_id).first()
         if not organization:
@@ -954,32 +957,76 @@ class ApplyBudgetRecommendationAPIView(RequiredOrganizationIDMixin, generics.Gen
             raise PermissionDenied("You do not have permission to modify campaign budgets.")
 
         campaign_id = request.data.get('campaign_id')
-        increase_amount = float(request.data.get('increase_amount', 50.0))
+        try:
+            increase_amount = float(request.data.get('increase_amount', 50.0))
+        except (TypeError, ValueError):
+            raise ValidationError({'increase_amount': 'Must be a number.'})
+        if not 0 < increase_amount <= 1_000_000:
+            raise ValidationError({'increase_amount': 'Must be greater than zero.'})
 
         campaign = None
         if campaign_id:
-            campaign = UnifiedCampaign.objects.filter(id=campaign_id, organization=organization).first()
+            campaign = UnifiedCampaign.objects.filter(
+                id=campaign_id, organization=organization
+            ).first()
+            if not campaign:
+                raise ValidationError({'campaign_id': 'Campaign not found.'})
+
         if not campaign:
-            campaign = UnifiedCampaign.objects.filter(organization=organization).first()
+            return Response({
+                'status': 'success',
+                'message': 'No campaign is eligible for a budget change yet.',
+                'campaign_id': None,
+                'increase_amount': increase_amount,
+                'new_daily_budget': None,
+            }, status=status.HTTP_200_OK)
 
-        campaign_name = campaign.name if campaign else "Campaign"
+        budget = CampaignBudget.objects.filter(campaign=campaign).order_by('platform').first()
+        if not budget:
+            raise ValidationError({'error': 'This campaign has no budget to increase yet.'})
 
-        # Update campaign budget if exists
-        # TODO: dispatch celery task to sync updated budget to Meta/Google/TikTok Marketing APIs
-        new_daily_budget = None
-        if campaign:
-            budget = CampaignBudget.objects.filter(campaign=campaign).first()
-            if budget:
-                budget.daily_budget_minor += int(increase_amount * 100)
-                budget.save()
-                new_daily_budget = round(budget.daily_budget_minor / 100, 2)
+        before = round(budget.daily_budget_minor / 100, 2)
+        budget.daily_budget_minor += int(round(increase_amount * 100))
+        budget.save(update_fields=['daily_budget_minor'])
+        after = round(budget.daily_budget_minor / 100, 2)
+
+        insight = (
+            campaign.ai_insights
+            .filter(status='OPEN', recommendation_type='BUDGET_INCREASE')
+            .order_by('-created_at')
+            .first()
+        )
+        entry = AppliedOptimization.objects.create(
+            organization=organization,
+            campaign=campaign,
+            insight=insight,
+            applied_by=user,
+            kind='BUDGET_INCREASE',
+            title=f"Increased daily budget on {campaign.name}",
+            before={'daily_budget': before, 'currency': campaign.currency},
+            after={
+                'daily_budget': after,
+                'increase_amount': increase_amount,
+                'currency': campaign.currency,
+                'estimated_monthly_savings': 0,
+            },
+            status=AppliedOptimization.Status.PENDING,
+        )
+        apply_budget_recommendation_task.delay(entry.id)
+        entry.refresh_from_db()
 
         return Response({
             'status': 'success',
-            'message': f"Budget recommendation applied successfully for '{campaign_name}'!",
-            'campaign_id': campaign.id if campaign else campaign_id,
-            'campaign_name': campaign_name,
+            'message': (
+                f"Budget recommendation applied for '{campaign.name}'. "
+                f"Platform changes are {'confirmed' if entry.status == 'APPLIED' else 'being applied'}."
+            ),
+            'campaign_id': campaign.id,
+            'campaign_name': campaign.name,
             'increase_amount': increase_amount,
-            'new_daily_budget': new_daily_budget,
+            'previous_daily_budget': before,
+            'new_daily_budget': after,
+            'optimization_id': entry.id,
+            'apply_status': entry.status,
+            'error': entry.error_message or None,
         }, status=status.HTTP_200_OK)
-

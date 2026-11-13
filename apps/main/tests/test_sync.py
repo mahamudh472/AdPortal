@@ -3,8 +3,11 @@ Tests for sync endpoints:
   POST /api/v1/main/sync-ads/?org_id=
   POST /api/v1/main/sync-analytics/?org_id=
 """
+from datetime import date
 from unittest.mock import patch
 
+from apps.main.models import PlatformCampaign
+from apps.main.tasks import sync_analytics_task
 from apps.main.tests.base import MainTestBase
 
 BASE = "/api/v1/main"
@@ -82,3 +85,20 @@ class SyncAnalyticsTests(MainTestBase):
     def test_sync_analytics_invalid_org_returns_400(self):
         res = self.client.post(f"{BASE}/sync-analytics/?org_id=invalid_org", {}, format="json")
         self.assertIn(res.status_code, [400, 403])
+
+
+class SyncAnalyticsTaskTests(MainTestBase):
+    @patch("apps.main.utils.meta_engine.analysis.generate_meta_campaign_analysis")
+    def test_task_accepts_date_objects_from_first_sync_chain(self, mock_generate):
+        integration = self.create_integration("META")
+        campaign = self.create_campaign("Task", status="ACTIVE")
+        PlatformCampaign.objects.create(
+            unified_campaign=campaign,
+            integration=integration,
+            platform_campaign_id="123456",
+        )
+        sync_analytics_task(integration.id, date(2026, 1, 1), date(2026, 1, 31))
+        mock_generate.assert_called_once()
+        args = mock_generate.call_args.args
+        self.assertEqual(args[2], date(2026, 1, 1))
+        self.assertEqual(args[3], date(2026, 1, 31))

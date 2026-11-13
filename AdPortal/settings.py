@@ -286,6 +286,8 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL')
 META_APP_ID = os.getenv('META_APP_ID')
 META_APP_SECRET = os.getenv('META_APP_SECRET')
 META_REDIRECT_URI = os.getenv('META_REDIRECT_URI')
+# Graph/Marketing API version; keep in step with the pinned facebook-business SDK.
+META_API_VERSION = os.getenv('META_API_VERSION', 'v24.0')
 
 TIKTOK_APP_ID = os.getenv('TIKTOK_APP_ID')
 TIKTOK_APP_SECRET = os.getenv('TIKTOK_APP_SECRET')
@@ -295,7 +297,7 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
 GOOGLE_ADS_DEVELOPER_TOKEN = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
-GOOGLE_ADS_API_VERSION = os.getenv("GOOGLE_ADS_API_VERSION", "v18")
+GOOGLE_ADS_API_VERSION = os.getenv("GOOGLE_ADS_API_VERSION", "v26")
 GOOGLE_ADS_MANAGER_ID = os.getenv("GOOGLE_ADS_MANAGER_ID")
 GOOGLE_ADS_TEST_MANAGER_ID = os.getenv("GOOGLE_ADS_TEST_MANAGER_ID")
 GOOGLE_ADS_USE_TEST_ACCOUNT = os.getenv("GOOGLE_ADS_USE_TEST_ACCOUNT", "False") == "True"
@@ -381,6 +383,16 @@ CELERY_BEAT_SCHEDULE = {
     'weekly-performance-summary': {
         'task': 'apps.main.tasks.weekly_performance_summary_task',
         'schedule': crontab(hour=9, minute=0, day_of_week=1),
+    },
+    # Every 6 hours — refresh the rolling 28-day analytics window for every integration
+    'sync-all-analytics': {
+        'task': 'apps.main.tasks.sync_all_analytics_task',
+        'schedule': crontab(hour='*/6', minute=15),
+    },
+    # Every day at 05:00 UTC — fill measured_impact for applied optimizations
+    'measure-applied-optimizations': {
+        'task': 'apps.main.tasks.measure_applied_optimizations_task',
+        'schedule': crontab(hour=5, minute=0),
     },
     # Every day at 02:00 UTC — generate AI insights for all active campaigns
     'daily-ai-insights-for-active-campaigns': {
@@ -469,4 +481,5 @@ CELERY_RESULT_EXPIRES = 3600
 CELERY_TASK_ROUTES = {
     'apps.main.tasks.generate_ai_insights_for_campaign': {'queue': 'ai'},
     'apps.main.tasks.generate_ai_insights_for_active_campaigns': {'queue': 'ai'},
+    'apps.main.tasks.run_optimization_for_organization_task': {'queue': 'ai'},
 }

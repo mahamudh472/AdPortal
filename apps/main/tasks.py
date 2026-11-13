@@ -422,15 +422,22 @@ def sync_ads_task(self, platform_integration_id):
 @shared_task(bind=True, max_retries=3)
 def sync_analytics_task(self, platform_integration_id, start_date=None, end_date=None):
     """Background task to sync analytics for a given platform integration."""
-    from datetime import datetime
+    from datetime import date, datetime
+
+    def _as_date(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return datetime.strptime(str(value), "%Y-%m-%d").date() if value else None
 
     try:
         integration = AdIntegration.objects.get(id=platform_integration_id)
     except AdIntegration.DoesNotExist:
         return
 
-    sd = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
-    ed = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+    sd = _as_date(start_date)
+    ed = _as_date(end_date)
 
     campaign_ids = list(
         integration.platform_campaigns.values_list("unified_campaign_id", flat=True).distinct()
@@ -448,12 +455,12 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
             platform=integration.platform,
             operation=PlatformSyncOperation.SYNC_ANALYTICS,
             message="Analytics sync queued",
-            payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+            payload={"integration_id": integration.id, "start_date": sd.isoformat() if sd else None, "end_date": ed.isoformat() if ed else None},
         )
         mark_platform_sync_event_in_progress(
             event,
             message="Analytics sync in progress",
-            payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+            payload={"integration_id": integration.id, "start_date": sd.isoformat() if sd else None, "end_date": ed.isoformat() if ed else None},
         )
         events.append(event)
 
@@ -486,7 +493,7 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
                     event,
                     error_message=f"Unsupported platform: {integration.platform}",
                     message="Analytics sync skipped",
-                    payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+                    payload={"integration_id": integration.id, "start_date": sd.isoformat() if sd else None, "end_date": ed.isoformat() if ed else None},
                 )
             return
 
@@ -494,7 +501,7 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
             mark_platform_sync_event_success(
                 event,
                 message="Analytics sync completed",
-                payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+                payload={"integration_id": integration.id, "start_date": sd.isoformat() if sd else None, "end_date": ed.isoformat() if ed else None},
             )
 
     except Exception as exc:
@@ -504,7 +511,7 @@ def sync_analytics_task(self, platform_integration_id, start_date=None, end_date
                 event,
                 error_message=str(exc),
                 message="Analytics sync failed",
-                payload={"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+                payload={"integration_id": integration.id, "start_date": sd.isoformat() if sd else None, "end_date": ed.isoformat() if ed else None},
             )
         self.retry(exc=exc, countdown=60)
 
@@ -560,6 +567,115 @@ def weekly_performance_summary_task():
         logger.info(
             "weekly_performance_summary_task: sent summary for org %s", organization.id
         )
+
+
+@shared_task(bind=True, max_retries=2)
+def apply_budget_recommendation_task(self, optimization_id):
+    """Push a locally applied budget change to every platform and record the result."""
+    from apps.main.models import AppliedOptimization, PlatformCampaign
+
+    entry = (
+        AppliedOptimization.objects
+        .select_related('campaign', 'insight')
+        .filter(id=optimization_id)
+        .first()
+    )
+    if entry is None or entry.status != AppliedOptimization.Status.PENDING:
+        return
+
+    campaign = entry.campaign
+    platform_campaigns = (
+        PlatformCampaign.objects
+        .filter(unified_campaign=campaign, platform_campaign_id__isnull=False)
+        .select_related('integration')
+    )
+
+    successes, errors, seen = [], [], set()
+    for platform_campaign in platform_campaigns:
+        platform = platform_campaign.integration.platform
+        if platform in seen:
+            continue
+        seen.add(platform)
+        integration = platform_campaign.integration
+        try:
+            if platform == 'META':
+                from apps.main.utils.meta_engine.manage_ad import update_campaign_on_meta
+                update_campaign_on_meta(campaign.id)
+            elif platform == 'GOOGLE':
+                from apps.main.utils.google_engine.manage_ad import update_campaign_on_google
+                update_campaign_on_google(campaign.id)
+            elif platform == 'TIKTOK':
+                from apps.main.utils.tiktok_handler import update_platform_campaign_for_tiktok
+                update_platform_campaign_for_tiktok(
+                    campaign, integration, integration.ad_account_id, integration.access_token
+                )
+            else:
+                continue
+            successes.append(platform)
+        except Exception as exc:  # noqa: BLE001 - one platform must not hide the others
+            logger.error(
+                "apply_budget_recommendation_task: %s failed for campaign %s: %s",
+                platform, campaign.id, exc,
+            )
+            errors.append(f"{platform}: {str(exc)[:300]}")
+
+    if errors:
+        entry.status = AppliedOptimization.Status.FAILED
+    else:
+        entry.status = AppliedOptimization.Status.APPLIED
+        if entry.insight_id:
+            entry.insight.status = 'APPLIED'
+            entry.insight.applied_at = timezone.now()
+            entry.insight.save(update_fields=['status', 'applied_at'])
+    entry.error_message = '; '.join(errors)[:2000]
+    entry.save(update_fields=['status', 'error_message'])
+    logger.info(
+        "apply_budget_recommendation_task: optimization=%s status=%s platforms=%s",
+        entry.id, entry.status, ','.join(successes) or 'local-only',
+    )
+
+
+@shared_task(bind=True, max_retries=2, soft_time_limit=300, time_limit=360)
+def run_optimization_for_organization_task(self, organization_id):
+    """Run the rule-based optimization pass for one organization and refresh its insights."""
+    from apps.main.models import Organization, AIOptimizationSettings
+    from apps.main.services.optimization import generate_rule_insights
+
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None:
+        return {'created': 0, 'updated': 0}
+
+    created, updated = generate_rule_insights(organization)
+    settings_obj, _ = AIOptimizationSettings.objects.get_or_create(organization=organization)
+    settings_obj.last_optimization_at = timezone.now()
+    settings_obj.save(update_fields=['last_optimization_at', 'updated_at'])
+    logger.info(
+        "run_optimization_for_organization_task: org=%s created=%s updated=%s",
+        organization.id, created, updated,
+    )
+    return {'created': created, 'updated': updated}
+
+
+@shared_task
+def measure_applied_optimizations_task():
+    """Daily: measure applied optimizations after their 7-day observation window."""
+    from apps.main.services.optimization import measure_applied_optimizations
+
+    count = measure_applied_optimizations()
+    logger.info("measure_applied_optimizations_task: measured=%s", count)
+    return count
+
+
+@shared_task
+def sync_all_analytics_task():
+    """Fan out a rolling analytics re-sync for every active integration (staggered)."""
+    integrations = AdIntegration.objects.filter(is_active=True).order_by('id')
+    count = 0
+    for index, integration in enumerate(integrations.iterator()):
+        sync_analytics_task.apply_async(args=[integration.id], countdown=index * 30)
+        count += 1
+    logger.info("sync_all_analytics_task: queued %d integration(s)", count)
+    return count
 
 
 @shared_task(bind=True, max_retries=3, soft_time_limit=300, time_limit=360)
@@ -711,8 +827,16 @@ def generate_ai_insights_for_campaign(self, campaign_id):
         return
 
     # ── 6. Persist each optimisation card as an AIInsight ─────────────────
+    from apps.main.services.optimization import confidence_score, infer_recommendation_type
+
     optimizations = result.get("optimizations", [])
     insights_created = 0
+    confidence = confidence_score(
+        impressions=totals["total_impressions"] or 0,
+        conversions=totals["total_conversions"] or 0,
+        days=7,
+    )
+    platform_labels = sorted(platform_breakdown.keys())
 
     for opt in optimizations:
         impact_raw = str(opt.get("impact", "medium")).lower()
@@ -723,13 +847,17 @@ def generate_ai_insights_for_campaign(self, campaign_id):
             f"{opt.get('observation', '')}\n\n"
             f"Recommendation: {opt.get('recommendation', '')}"
         ).strip()
+        subject = opt.get("subject", "AI Optimisation Insight")
 
         AIInsight.objects.create(
             organization=campaign.organization,
             campaign=campaign,
-            title=opt.get("subject", "AI Optimisation Insight"),
+            title=subject,
             description=description,
             impact=impact,
+            recommendation_type=infer_recommendation_type(f"{subject} {opt.get('recommendation', '')}"),
+            params={"campaign_id": campaign.id, "platforms": platform_labels},
+            confidence=confidence,
         )
         insights_created += 1
 

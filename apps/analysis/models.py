@@ -23,6 +23,14 @@ class AnalysisDaily(models.Model):
     device_breakdown = models.JSONField(blank=True, null=True)  # e.g., {"mobile": {...}, "desktop": {...}}
     budget_type = models.CharField(max_length=20, blank=True, null=True)
     budget_amount = models.FloatField(blank=True, null=True)
+    # Revenue (conversion value) in ``currency``; ``roas`` is conversion_value / spend.
+    conversion_value = models.FloatField(default=0)
+    reach = models.IntegerField(blank=True, null=True)
+    frequency = models.FloatField(blank=True, null=True)
+    video_views = models.IntegerField(blank=True, null=True)
+    currency = models.CharField(max_length=3, blank=True, default='')
+    synced_at = models.DateTimeField(blank=True, null=True)
+
     class Meta:
         unique_together = ('platform', 'account_id', 'campaign_id', 'adgroup_id', 'date')
         indexes = [
@@ -33,6 +41,47 @@ class AnalysisDaily(models.Model):
 
     def __str__(self):
         return f"Analysis for {self.campaign_name} {self.date} on {self.platform}"
+
+
+class AnalysisBreakdownDaily(models.Model):
+    """One row per (campaign, day, dimension, key), e.g. dimension='device', key='mobile'.
+
+    A single generic table keeps every breakdown (publisher platform, placement, device,
+    hour of day, age, gender, country) queryable without a table or column per breakdown.
+    """
+    class Dimension(models.TextChoices):
+        PUBLISHER_PLATFORM = 'publisher_platform', 'Publisher platform'
+        PLACEMENT = 'placement', 'Placement'
+        DEVICE = 'device', 'Device'
+        HOUR = 'hour', 'Hour of day'
+        AGE = 'age', 'Age'
+        GENDER = 'gender', 'Gender'
+        COUNTRY = 'country', 'Country'
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='breakdown_analyses')
+    unified_campaign = models.ForeignKey('main.UnifiedCampaign', on_delete=models.CASCADE, related_name='breakdown_analyses')
+    platform = models.CharField(max_length=100, choices=Platform.choices)
+    account_id = models.CharField(max_length=100)
+    campaign_id = models.CharField(max_length=100)
+    date = models.DateField()
+    dimension = models.CharField(max_length=30, choices=Dimension.choices)
+    key = models.CharField(max_length=100)
+    impressions = models.IntegerField(default=0)
+    clicks = models.IntegerField(default=0)
+    spend = models.FloatField(default=0)
+    conversions = models.FloatField(default=0)
+    conversion_value = models.FloatField(default=0)
+    currency = models.CharField(max_length=3, blank=True, default='')
+
+    class Meta:
+        unique_together = ('platform', 'account_id', 'campaign_id', 'date', 'dimension', 'key')
+        indexes = [
+            models.Index(fields=['organization', 'dimension', 'date'], name='breakdown_org_dim_date_idx'),
+            models.Index(fields=['unified_campaign', 'dimension'], name='breakdown_camp_dim_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.dimension}={self.key} {self.date} {self.platform}"
 
 
 class Report(models.Model):

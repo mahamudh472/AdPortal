@@ -36,7 +36,7 @@ def init_meta_api(access_token: str):
         settings.META_APP_ID,
         settings.META_APP_SECRET,
         access_token,
-        api_version="v19.0",
+        api_version=getattr(settings, "META_API_VERSION", "v24.0"),
     )
 
 
